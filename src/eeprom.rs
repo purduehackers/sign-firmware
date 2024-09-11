@@ -1,8 +1,8 @@
 // use super::ceil;
 use core::mem::size_of;
 use embassy_time::{Duration, Timer};
-use esp_idf_svc::hal::spi::{SpiDeviceDriver, SpiDriver};
 use log::info;
+use palette::num::Round;
 
 const READ_INSTRUCTION: u8 = 0b0000_0011;
 const WRITE_INSTRUCTION: u8 = 0b0000_0010;
@@ -19,8 +19,14 @@ const CONFIG_VERSION: u8 = 1;
 
 const DELAY: Duration = Duration::from_millis(10);
 
-pub struct Eeprom<'a> {
-    spi: SpiDeviceDriver<'a, SpiDriver<'a>>,
+trait Spi {
+    fn write(&mut self, data: &[u8]) -> anyhow::Result<()>;
+
+    fn read(&mut self, data: &mut [u8]) -> anyhow::Result<()>;
+}
+
+pub struct Eeprom<S: Spi> {
+    spi: S,
     pub metadata: Metadata,
 }
 
@@ -44,40 +50,40 @@ const BINCODE_CONFIG: bincode::config::Configuration<bincode::config::BigEndian>
         .with_big_endian()
         .with_variable_int_encoding();
 
-impl<'a> Eeprom<'a> {
-    pub async fn from_spi(spi: SpiDeviceDriver<'a, SpiDriver<'a>>) -> anyhow::Result<Self> {
-        let mut eeprom = Self {
-            spi,
-            metadata: Default::default(),
-        };
+impl<S: Spi> Eeprom<S> {
+    // pub async fn from_spi(spi: SpiDeviceDriver<'a, SpiDriver<'a>>) -> anyhow::Result<Self> {
+    //     let mut eeprom = Self {
+    //         spi,
+    //         metadata: Default::default(),
+    //     };
 
-        eeprom.write_status(0).await?;
+    //     eeprom.write_status(0).await?;
 
-        info!(
-            "Read status register: 0b{:08b}",
-            eeprom.read_status().await?
-        );
+    //     info!(
+    //         "Read status register: 0b{:08b}",
+    //         eeprom.read_status().await?
+    //     );
 
-        eeprom.assert_read_write_works().await?;
+    //     eeprom.assert_read_write_works().await?;
 
-        let mut metadata = [0x0; size_of::<Metadata>()];
+    //     let mut metadata = [0x0; size_of::<Metadata>()];
 
-        eeprom
-            .read_bytes(METADATA_BLOCK_START, &mut metadata)
-            .await?;
+    //     eeprom
+    //         .read_bytes(METADATA_BLOCK_START, &mut metadata)
+    //         .await?;
 
-        let (metadata, _) = bincode::decode_from_slice::<Metadata, _>(&metadata, BINCODE_CONFIG)
-            .expect("decode metadata");
+    //     let (metadata, _) = bincode::decode_from_slice::<Metadata, _>(&metadata, BINCODE_CONFIG)
+    //         .expect("decode metadata");
 
-        if metadata.config_version != CONFIG_VERSION {
-            eeprom.erase().await?;
-            eeprom.write_config().await?;
-        } else {
-            eeprom.metadata = metadata;
-        }
+    //     if metadata.config_version != CONFIG_VERSION {
+    //         eeprom.erase().await?;
+    //         eeprom.write_config().await?;
+    //     } else {
+    //         eeprom.metadata = metadata;
+    //     }
 
-        Ok(eeprom)
-    }
+    //     Ok(eeprom)
+    // }
 
     async fn write_config(&mut self) -> anyhow::Result<()> {
         let mut metadata = [0x0_u8; size_of::<Metadata>()];
