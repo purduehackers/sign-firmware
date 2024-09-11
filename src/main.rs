@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+use chrono::{Duration, NaiveTime};
+use embassy_time::Timer;
 use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
@@ -9,10 +11,13 @@ use esp_hal::{
     interrupt::Priority,
     peripherals::Peripherals,
     prelude::*,
+    rtc_cntl::Rtc,
     system::SystemControl,
     timer::timg::TimerGroup,
 };
 use esp_hal_embassy::InterruptExecutor;
+use lightning_time::LightningTime;
+use sign_firmware::Block;
 use sign_firmware::{leds_software_pwm, Leds};
 use static_cell::StaticCell;
 
@@ -28,6 +33,28 @@ fn init_heap() {
 
     unsafe {
         ALLOCATOR.init(HEAP.as_mut_ptr() as *mut u8, HEAP_SIZE);
+    }
+}
+
+#[embassy_executor::task]
+async fn amain(mut leds: Leds, rtc: Rtc<'static>) {
+    let time = NaiveTime::from_hms_opt(12, 29, 0).unwrap();
+
+    loop {
+        let colors =
+            LightningTime::from(time + Duration::milliseconds(rtc.get_time_ms() as i64)).colors();
+
+        leds.set_color(colors.bolt, Block::BottomLeft).await;
+
+        for block in [Block::Top, Block::Center] {
+            leds.set_color(colors.zap, block).await;
+        }
+
+        for block in [Block::Right, Block::BottomRight] {
+            leds.set_color(colors.spark, block).await;
+        }
+
+        Timer::after_millis(100).await;
     }
 }
 
@@ -99,6 +126,9 @@ fn main() -> ! {
     let spawner = executor_core0.start(Priority::Priority1);
 
     let leds = Leds::create();
+    let rtc = Rtc::new(peripherals.LPWR);
+
+    spawner.spawn(amain(leds, rtc)).ok();
 
     // Just loop to show that the main thread does not need to poll the executor.
     loop {}
