@@ -1,4 +1,4 @@
-use super::ceil;
+// use super::ceil;
 use core::mem::size_of;
 use embassy_time::{Duration, Timer};
 use esp_idf_svc::hal::spi::{SpiDeviceDriver, SpiDriver};

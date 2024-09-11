@@ -1,10 +1,16 @@
+use embassy_time::Timer;
 use esp_idf_svc::{
-    hal::{prelude::Peripherals, task::block_on},
+    hal::{
+        delay::FreeRtos,
+        prelude::Peripherals,
+        task::{self, block_on},
+    },
     wifi::{
         AsyncWifi, AuthMethod, ClientConfiguration, Configuration, EspWifi, PmfConfiguration,
         ScanMethod,
     },
 };
+use sign_firmware::{Block, Leds};
 
 #[toml_cfg::toml_config]
 pub struct Config {
@@ -24,15 +30,24 @@ fn main() {
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
 
-    log::info!("Hello, world!");
-
-    let p = Peripherals::take().unwrap();
-
-    let pins = p.pins;
     block_on(amain());
 }
 
-async fn amain() {}
+async fn amain() {
+    let Ok(mut leds) = Leds::create() else {
+        log::error!("LEDs are fucked up, goodbye.");
+
+        panic!()
+    };
+
+    log::info!("Hello, world!");
+
+    // leds.set_color(palette::Srgb::new(255, 255, 255), Block::Center);
+
+    loop {
+        Timer::after_millis(100).await
+    }
+}
 
 async fn connect_to_wifi(
     wifi: &mut AsyncWifi<EspWifi<'static>>,

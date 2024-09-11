@@ -1,43 +1,29 @@
 #![no_std]
+#![feature(const_mut_refs)]
 
-use core::hint::unreachable_unchecked;
+use core::{
+    mem::MaybeUninit,
+    num::NonZeroU32,
+    ops::{Deref, DerefMut},
+};
 
-use esp_idf_svc::hal::ledc::LedcDriver;
-
-// use embassy_rp::{
-//     peripherals::{
-//         PWM_SLICE0, PWM_SLICE1, PWM_SLICE2, PWM_SLICE3, PWM_SLICE4, PWM_SLICE5, PWM_SLICE6,
-//         PWM_SLICE7,
-//     },
-//     pwm::{Config, Pwm, Slice},
-// };
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
+use esp_idf_svc::{
+    hal::{
+        delay,
+        gpio::{AnyOutputPin, Output, OutputPin, PinDriver},
+        prelude::Peripherals,
+        task::notification::Notification,
+        timer::{config, TimerDriver},
+    },
+    sys::EspError,
+};
 
 pub mod eeprom;
 pub mod schema;
 
-pub struct ConfiguredPwm<'a, S: Slice> {
-    pub config: Config,
-    pub pwm: Pwm<'a, S>,
-}
-
-impl<'a, S: Slice> From<Pwm<'a, S>> for ConfiguredPwm<'a, S> {
-    fn from(value: Pwm<'a, S>) -> Self {
-        Self {
-            config: Config::default(),
-            pwm: value,
-        }
-    }
-}
-
-pub struct Leds<'a> {
-    pub s0: LedcDriver<'a>,
-    pub s1: LedcDriver<'a>,
-    pub s2: LedcDriver<'a>,
-    pub s3: LedcDriver<'a>,
-    pub s4: LedcDriver<'a>,
-    pub s5: LedcDriver<'a>,
-    pub s6: LedcDriver<'a>,
-    pub s7: LedcDriver<'a>,
+pub struct Leds {
+    pub buffer: [u8; 15],
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -50,12 +36,6 @@ pub enum Block {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum PwmSubchannel {
-    A,
-    B,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Color {
     Red = 0,
     Green,
@@ -63,18 +43,8 @@ enum Color {
 }
 
 impl Block {
-    fn channel_for_color(&self, color: Color) -> (u8, PwmSubchannel) {
-        let sum = (*self as u8 * 3) + color as u8;
-        let channel = sum / 2;
-        let subchannel = sum % 2;
-        (
-            channel,
-            match subchannel {
-                0 => PwmSubchannel::A,
-                1 => PwmSubchannel::B,
-                _ => unsafe { unreachable_unchecked() },
-            },
-        )
+    fn channel_for_color(&self, color: Color) -> usize {
+        (*self as usize * 3) + color as usize
     }
 }
 
@@ -93,48 +63,93 @@ const GAMMA_LUT: [u8; 256] = [
     249, 251, 253, 255,
 ];
 
-impl Leds<'_> {
-    pub fn set_color(&mut self, color: palette::Srgb<u8>, block: Block) {
-        let (r_c, r_sc) = block.channel_for_color(Color::Red);
-        self.set_color_channel(color.red, r_c, r_sc);
-        let (g_c, g_sc) = block.channel_for_color(Color::Green);
-        self.set_color_channel(color.green, g_c, g_sc);
-        let (b_c, b_sc) = block.channel_for_color(Color::Blue);
-        self.set_color_channel(color.blue, b_c, b_sc);
-    }
+static mut LED_DATA_BUFFER: [u8; 15] = [
+    0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+];
 
-    fn set_color_channel(&mut self, channel_val: u8, pwm_channel: u8, subchannel: PwmSubchannel) {
-        let config = match pwm_channel {
-            0 => &mut self.s0.config,
-            1 => &mut self.s1.config,
-            2 => &mut self.s2.config,
-            3 => &mut self.s3.config,
-            4 => &mut self.s4.config,
-            5 => &mut self.s5.config,
-            6 => &mut self.s6.config,
-            7 => &mut self.s7.config,
-            _ => unsafe { unreachable_unchecked() },
-        };
-        let channel_val: u16 = (GAMMA_LUT[channel_val as usize]) as u16 * 257;
-        match subchannel {
-            PwmSubchannel::A => {
-                config.compare_a = channel_val;
-            }
-            PwmSubchannel::B => {
-                config.compare_b = channel_val;
-            }
+static mut LED_PINS: [PinDriver<'_, AnyOutputPin, Output>; 15] =
+    unsafe { MaybeUninit::zeroed().assume_init() };
+
+static mut TIMER_VALUE: u8 = 0;
+
+impl Leds {
+    pub fn create() -> Result<Leds, EspError> {
+        let peripherals = Peripherals::take()?;
+
+        let timer_conf = config::Config::new().auto_reload(true);
+        let mut timer = TimerDriver::new(peripherals.timer00, &timer_conf)?;
+
+        unsafe {
+            LED_PINS = [
+                PinDriver::output(peripherals.pins.gpio1.downgrade_output())?,
+                PinDriver::output(peripherals.pins.gpio2.downgrade_output())?,
+                PinDriver::output(peripherals.pins.gpio4.downgrade_output())?,
+                PinDriver::output(peripherals.pins.gpio5.downgrade_output())?,
+                PinDriver::output(peripherals.pins.gpio6.downgrade_output())?,
+                PinDriver::output(peripherals.pins.gpio7.downgrade_output())?,
+                PinDriver::output(peripherals.pins.gpio8.downgrade_output())?,
+                PinDriver::output(peripherals.pins.gpio9.downgrade_output())?,
+                PinDriver::output(peripherals.pins.gpio10.downgrade_output())?,
+                PinDriver::output(peripherals.pins.gpio11.downgrade_output())?,
+                PinDriver::output(peripherals.pins.gpio12.downgrade_output())?,
+                PinDriver::output(peripherals.pins.gpio13.downgrade_output())?,
+                PinDriver::output(peripherals.pins.gpio14.downgrade_output())?,
+                PinDriver::output(peripherals.pins.gpio15.downgrade_output())?,
+                PinDriver::output(peripherals.pins.gpio16.downgrade_output())?,
+            ];
+
+            timer.subscribe(move || {
+                log::info!("LED timer triggered, let's rock and roll");
+
+                Self::set_leds(TIMER_VALUE);
+
+                unsafe {
+                    TIMER_VALUE += 1;
+                }
+
+                log::info!("Done updating LEDs");
+            })?;
         }
 
-        match pwm_channel {
-            0 => self.s0.pwm.set_config(config),
-            1 => self.s1.pwm.set_config(config),
-            2 => self.s2.pwm.set_config(config),
-            3 => self.s3.pwm.set_config(config),
-            4 => self.s4.pwm.set_config(config),
-            5 => self.s5.pwm.set_config(config),
-            6 => self.s6.pwm.set_config(config),
-            7 => self.s7.pwm.set_config(config),
-            _ => unsafe { unreachable_unchecked() },
+        timer.enable_interrupt()?;
+
+        timer.enable_alarm(true)?;
+        // Update Leds at 120hz
+        timer.set_alarm(timer.tick_hz() / (256 * 120))?;
+
+        timer.enable(true)?;
+
+        Ok(Leds {
+            buffer: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        })
+    }
+
+    pub async fn set_color(&mut self, color: palette::Srgb<u8>, block: Block) {
+        let r = block.channel_for_color(Color::Red);
+        self.buffer[r] = GAMMA_LUT[color.red as usize];
+
+        let g = block.channel_for_color(Color::Green);
+        self.buffer[g] = GAMMA_LUT[color.green as usize];
+
+        let b = block.channel_for_color(Color::Blue);
+        self.buffer[b] = GAMMA_LUT[color.blue as usize];
+
+        unsafe {
+            LED_DATA_BUFFER = self.buffer.clone();
+        }
+    }
+
+    pub fn set_leds(timer_value: u8) {
+        for n in 0..15 {
+            if timer_value == 0 {
+                unsafe {
+                    let _ = LED_PINS[n].set_high();
+                };
+            } else if unsafe { LED_DATA_BUFFER[n] } >= timer_value {
+                unsafe {
+                    let _ = LED_PINS[n].set_low();
+                };
+            }
         }
     }
 }

@@ -38,6 +38,8 @@ palette = "0.7.6"
 bincode = { version = "2.0.0-rc.3", features = ["derive"] }
 anyhow = "1.0.87"
 toml-cfg = "0.2.0"
+embassy-time = "0.3.2"
+embassy-sync = "0.6.0"
 
 [build-dependencies]
 embuild = "0.32.0"
