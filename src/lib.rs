@@ -1,4 +1,4 @@
-// #![no_std]
+#![no_std]
 // #![feature(const_mut_refs)]
 
 // use core::{
