@@ -1,13 +1,26 @@
 #![no_std]
 #![no_main]
 
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
+use embassy_time::{Duration, Ticker};
+use embedded_hal::digital::OutputPin;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::ClockControl, delay::Delay, peripherals::Peripherals, prelude::*, system::SystemControl,
+    clock::ClockControl,
+    cpu_control::{CpuControl, Stack},
+    get_core,
+    gpio::{Io, Level, Output},
+    interrupt::Priority,
+    peripherals::Peripherals,
+    prelude::*,
+    system::SystemControl,
+    timer::timg::TimerGroup,
 };
+use esp_hal_embassy::InterruptExecutor;
+use static_cell::StaticCell;
 
 extern crate alloc;
-use core::mem::MaybeUninit;
+use core::{mem::MaybeUninit, ptr::addr_of_mut};
 
 #[global_allocator]
 static ALLOCATOR: esp_alloc::EspHeap = esp_alloc::EspHeap::empty();
@@ -27,17 +40,17 @@ static mut APP_CORE_STACK: Stack<8192> = Stack::new();
 /// duration of time.
 #[embassy_executor::task]
 async fn control_led(
-    mut led: Output<'static>,
+    mut led: impl OutputPin + 'static,
     control: &'static Signal<CriticalSectionRawMutex, bool>,
 ) {
-    println!("Starting control_led() on core {}", get_core() as usize);
+    esp_println::println!("Starting control_led() on core {}", get_core() as usize);
     loop {
         if control.wait().await {
             esp_println::println!("LED on");
-            led.set_low();
+            let _ = led.set_low();
         } else {
             esp_println::println!("LED off");
-            led.set_high();
+            let _ = led.set_high();
         }
     }
 }
@@ -45,7 +58,7 @@ async fn control_led(
 /// Sends periodic messages to control_led, enabling or disabling it.
 #[embassy_executor::task]
 async fn enable_disable_led(control: &'static Signal<CriticalSectionRawMutex, bool>) {
-    println!(
+    esp_println::println!(
         "Starting enable_disable_led() on core {}",
         get_core() as usize
     );
@@ -65,20 +78,19 @@ async fn enable_disable_led(control: &'static Signal<CriticalSectionRawMutex, bo
 fn main() -> ! {
     init_heap();
 
-    let peripherals = esp_hal::init(esp_hal::Config::default());
-
-    let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+    let peripherals = Peripherals::take();
 
     let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
 
-    let timg0 = TimerGroup::new(peripherals.TIMG0);
-    let timer0: ErasedTimer = timg0.timer0.into();
-    let timer1: ErasedTimer = timg0.timer1.into();
-    esp_hal_embassy::init([timer0, timer1]);
+    let system = SystemControl::new(peripherals.SYSTEM);
+    let sw_ints = system.software_interrupt_control;
+    let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
+    let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks);
+    esp_hal_embassy::init(&clocks, timg0.timer0);
 
     let _init = esp_wifi::initialize(
         esp_wifi::EspWifiInitFor::Wifi,
-        timg0.timer0,
+        timg0.timer1,
         esp_hal::rng::Rng::new(peripherals.RNG),
         peripherals.RADIO_CLK,
         &clocks,
@@ -90,7 +102,7 @@ fn main() -> ! {
     static LED_CTRL: StaticCell<Signal<CriticalSectionRawMutex, bool>> = StaticCell::new();
     let led_ctrl_signal = &*LED_CTRL.init(Signal::new());
 
-    let led = Output::new(io.pins.gpio0.degrade(), Level::Low);
+    let led = Output::new(io.pins.gpio0, Level::Low);
 
     static EXECUTOR_CORE_1: StaticCell<InterruptExecutor<1>> = StaticCell::new();
     let executor_core1 = InterruptExecutor::new(sw_ints.software_interrupt1);
@@ -116,31 +128,4 @@ fn main() -> ! {
 
     // Just loop to show that the main thread does not need to poll the executor.
     loop {}
-}
-
-#[entry]
-fn main() -> ! {
-    let peripherals = Peripherals::take();
-    let system = SystemControl::new(peripherals.SYSTEM);
-
-    let clocks = ClockControl::max(system.clock_control).freeze();
-    let delay = Delay::new(&clocks);
-    init_heap();
-
-    esp_println::logger::init_logger_from_env();
-
-    let timg0 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0, &clocks);
-    let _init = esp_wifi::initialize(
-        esp_wifi::EspWifiInitFor::Wifi,
-        timg0.timer0,
-        esp_hal::rng::Rng::new(peripherals.RNG),
-        peripherals.RADIO_CLK,
-        &clocks,
-    )
-    .unwrap();
-
-    loop {
-        log::info!("Hello world!");
-        delay.delay(500.millis());
-    }
 }
