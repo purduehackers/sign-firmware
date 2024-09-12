@@ -3,8 +3,9 @@
 // pub mod eeprom;
 // pub mod schema;
 
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Ticker};
-use esp_hal::gpio::AnyOutput;
+use esp_hal::gpio::{AnyPin, Output};
 
 pub struct Leds {
     pub buffer: [u8; 15],
@@ -47,21 +48,11 @@ const GAMMA_LUT: [u8; 256] = [
     249, 251, 253, 255,
 ];
 
-static mut TARGET_DATA_BUFFER: usize = 0;
-
-static mut LED_DATA_BUFFER_0: [u8; 15] = [
-    0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
-];
-
-static mut LED_DATA_BUFFER_1: [u8; 15] = [
-    0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
-];
+static PWM_CONTROL: Channel<CriticalSectionRawMutex, [u8; 15], 1> = Channel::new();
 
 impl Leds {
     pub fn create() -> Leds {
-        Leds {
-            buffer: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        }
+        Leds { buffer: [0; 15] }
     }
 
     pub async fn set_color(&mut self, color: palette::Srgb<u8>, block: Block) {
@@ -75,55 +66,35 @@ impl Leds {
         self.buffer[b] = GAMMA_LUT[color.blue as usize];
     }
 
-    pub async fn swap(&mut self) {
-        unsafe {
-            let mut copied_data_buffer_target = TARGET_DATA_BUFFER;
-
-            match copied_data_buffer_target {
-                0 => {
-                    LED_DATA_BUFFER_1 = self.buffer;
-                }
-                1 => {
-                    LED_DATA_BUFFER_0 = self.buffer;
-                }
-                _ => {
-                    copied_data_buffer_target = 0;
-                }
-            }
-
-            TARGET_DATA_BUFFER = 1 - copied_data_buffer_target;
-        }
+    pub async fn swap(&self) {
+        PWM_CONTROL.send(self.buffer).await;
     }
 }
 
 #[embassy_executor::task]
-pub async fn leds_software_pwm(mut led_pins: [AnyOutput<'static>; 15]) {
+pub async fn leds_software_pwm(mut led_pins: [Output<'static, AnyPin>; 15]) {
     let mut timer_value: u8 = 0;
+    let mut last_buffer = [0_u8; 15];
 
     // Update at 120hz
-    let mut ticker = Ticker::every(Duration::from_hz(256 * 120));
+    let mut ticker = Ticker::every(Duration::from_hz(256 * 200));
+
+    let pwm_receiver = PWM_CONTROL.receiver();
 
     loop {
-        timer_value += 1;
-
-        let copied_data_buffer_target = unsafe { TARGET_DATA_BUFFER };
+        last_buffer = pwm_receiver.try_receive().unwrap_or(last_buffer);
 
         for n in 0..15 {
             if timer_value == 0 {
                 led_pins[n].set_high();
-            } else if unsafe {
-                match copied_data_buffer_target {
-                    0 => LED_DATA_BUFFER_0[n],
-                    1 => LED_DATA_BUFFER_1[n],
-                    _ => {
-                        unreachable!("Woah, that's an invalid buffer pointer you got there.");
-                    }
-                }
-            } >= timer_value
-            {
+            }
+
+            if last_buffer[n] == timer_value {
                 led_pins[n].set_low();
             }
         }
+
+        timer_value += 1;
 
         ticker.next().await;
     }
