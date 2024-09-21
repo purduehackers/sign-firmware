@@ -8,6 +8,9 @@ license = "MIT OR Apache-2.0"
 [[bin]]
 name = "sign-firmware"
 harness = false
+test = false
+doctest = false
+bench = false
 
 [dependencies]
 esp-backtrace = { version = "0.14.0", features = [
