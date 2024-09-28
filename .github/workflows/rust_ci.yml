@@ -88,6 +88,7 @@ jobs:
             echo "new_version=true" >> $GITHUB_ENV
           else
             echo "new_version=false" >> $GITHUB_ENV
+          fi
 
       - name: Build for release
         if: env.new_version == 'true'
