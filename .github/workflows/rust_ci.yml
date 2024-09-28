@@ -111,7 +111,7 @@ jobs:
       - name: Check binary size
         if: env.new_version == 'true'
         run: |
-          BINARY_SIZE=$(stat -c%s "target/release/sign-firmware")
+          BINARY_SIZE=$(stat -c%s "release/sign-firmware")
           echo "Binary size: $BINARY_SIZE bytes"
           if [ "$BINARY_SIZE" -gt $((7.5 * 1024 * 1024)) ]; then
             echo "The binary exceeds the size limit of 7.5 MB. Skipping release."
