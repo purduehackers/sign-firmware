@@ -35,7 +35,7 @@ jobs:
         uses: esp-rs/xtensa-toolchain@v1.5
         with:
           default: true
-          buildtargets: esp32s3
+          buildtargets: esp32
           ldproxy: true
 
       - name: Enable caching
@@ -55,7 +55,7 @@ jobs:
         run: |
           sudo apt-get install -y libudev-dev
           cargo install espflash
-          espflash save-image --chip esp32s3 target/xtensa-esp32s3-espidf/release/sign-firmware sign-firmware.bin -T partitions.csv
+          espflash save-image --chip esp32 target/xtensa-esp32-espidf/release/sign-firmware sign-firmware.bin -T partitions.csv
           ls -la # List files to verify conversion
 
       # Upload the converted binary as an artifact

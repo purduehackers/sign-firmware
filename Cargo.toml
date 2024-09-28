@@ -17,17 +17,17 @@ bench = false
 
 [dependencies]
 # esp-backtrace = { version = "0.14.0", features = [
-#     "esp32s3",
+#     "esp32",
 #     "exception-handler",
 #     "panic-handler",
 #     "println",
 # ] }
 # esp-idf-hal = { version = "0.44.1", default-features = false, features = ["alloc"] }
-# esp-println = { version = "0.11.0", features = ["esp32s3", "log"] }
+# esp-println = { version = "0.11.0", features = ["esp32", "log"] }
 log = { version = "0.4.21" }
 # esp-alloc = { git = "https://github.com/esp-rs/esp-hal.git" }
 # esp-wifi = { git = "https://github.com/esp-rs/esp-hal.git", features = [
-#     "esp32s3",
+#     "esp32",
 #     # "phy-enable-usb",
 #     "utils",
 #     "wifi",

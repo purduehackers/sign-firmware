@@ -1,4 +1,4 @@
-# [target.xtensa-esp32s3-none-elf]
+# [target.xtensa-esp32-none-elf]
 # runner = "espflash flash --monitor"
 
 
@@ -8,14 +8,14 @@
 # [build]
 # rustflags = ["-C", "link-arg=-nostartfiles"]
 
-# target = "xtensa-esp32s3-none-elf"
+# target = "xtensa-esp32-none-elf"
 
 # [unstable]
 # build-std = ["alloc", "core"]
 [build]
-target = "xtensa-esp32s3-espidf"
+target = "xtensa-esp32-espidf"
 
-[target.xtensa-esp32s3-espidf]
+[target.xtensa-esp32-espidf]
 linker = "ldproxy"
 runner = "espflash flash --monitor" # Select this runner for espflash v3.x.x
 rustflags = [
@@ -27,7 +27,7 @@ rustflags = [
 build-std = ["std", "panic_abort"]
 
 [env]
-MCU = "esp32s3"
+MCU = "esp32"
 # Note: this variable is not used by the pio builder (`cargo build --features pio`)
 ESP_IDF_VERSION = "v5.2.2"
 ESP_LOGLEVEL = "DEBUG"
