@@ -1,6 +1,5 @@
 // pub mod eeprom;
 // pub mod schema;
-#![feature(atomic_bool_fetch_not)]
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use esp_idf_svc::{
@@ -105,9 +104,9 @@ pub static mut A_BUF: [u8; 15] = [0; 15];
 pub static mut B_BUF: [u8; 15] = [0; 15];
 
 // #[embassy_executor::task]
-pub fn leds_software_pwm<'d>(
+pub fn leds_software_pwm(
     mut led_pins: [PinDriver<'static, AnyOutputPin, Output>; 15],
-    mut wd: WatchdogSubscription<'d>,
+    mut wd: WatchdogSubscription<'_>,
     _rx: Receiver<[u8; 15]>,
 ) {
     let mut timer_value: u8 = 0;
