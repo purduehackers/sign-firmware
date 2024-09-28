@@ -50,6 +50,14 @@ jobs:
       - name: Run command
         run: cargo ${{ matrix.action.command }} ${{ matrix.action.args }}
 
+      # Store the release build binary as an artifact
+      - name: Upload release binary artifact
+        if: matrix.action.command == 'build'
+        uses: actions/upload-artifact@v3
+        with:
+          name: sign-firmware-binary
+          path: target/release/sign-firmware
+
   publish:
     name: Publish Release
     runs-on: ubuntu-latest
@@ -92,16 +100,12 @@ jobs:
             echo "new_version=false" >> $GITHUB_ENV
           fi
 
-      - name: Setup Rust
-        uses: esp-rs/xtensa-toolchain@v1.5
-        with:
-          default: true
-          buildtargets: esp32s3
-          ldproxy: true
-
-      - name: Build for release
+      - name: Download release binary artifact
         if: env.new_version == 'true'
-        run: cargo build --release
+        uses: actions/download-artifact@v3
+        with:
+          name: sign-firmware-binary
+          path: ./release
 
       - name: Check binary size
         if: env.new_version == 'true'
