@@ -2,6 +2,8 @@ name: Continuous Integration
 
 on:
   push:
+    branches:
+      - main
     paths-ignore:
       - "**/README.md"
   pull_request:
@@ -52,6 +54,7 @@ jobs:
     name: Publish Release
     runs-on: ubuntu-latest
     needs: rust-checks
+    if: github.ref == 'refs/heads/main' # Ensure it runs only on the main branch
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -94,7 +97,7 @@ jobs:
         if: env.new_version == 'true'
         run: |
           mkdir -p release
-          cp target/release/<your-binary-name> release/
+          cp target/release/sign-firmware release/
         shell: bash
 
       - name: Create Release
@@ -104,6 +107,6 @@ jobs:
           tag_name: v${{ env.VERSION }}
           name: v${{ env.VERSION }}
           body: "Release version ${{ env.VERSION }}"
-          files: release/<your-binary-name>
+          files: release/sign-firmware
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
