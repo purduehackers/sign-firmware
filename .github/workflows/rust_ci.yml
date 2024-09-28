@@ -92,6 +92,15 @@ jobs:
             echo "new_version=false" >> $GITHUB_ENV
           fi
 
+      - name: Setup Rust
+        uses: actions/setup-rust@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install Custom Toolchain
+        run: rustup toolchain install esp
+
       - name: Build for release
         if: env.new_version == 'true'
         run: cargo build --release
@@ -103,7 +112,7 @@ jobs:
           echo "Binary size: $BINARY_SIZE bytes"
           if [ "$BINARY_SIZE" -gt $((7.5 * 1024 * 1024)) ]; then
             echo "The binary exceeds the size limit of 7.5 MB. Skipping release."
-            echo "new_version=false" >> $GITHUB_ENV
+            exit 1
           fi
 
       - name: Upload release artifact
