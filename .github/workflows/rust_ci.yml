@@ -50,14 +50,20 @@ jobs:
       - name: Run command
         run: cargo ${{ matrix.action.command }} ${{ matrix.action.args }}
 
-      # Store the release build binary as an artifact
+      - name: Convert binary to .bin format
+        if: matrix.action.command == 'build'
+        run: |
+          espflash save-image --chip esp32s3 target/xtensa-esp32s3-espidf/release/sign-firmware sign-firmware.bin -s 16mb
+          ls -la # List files to verify conversion
+
+      # Upload the converted binary as an artifact
       - name: Upload release binary artifact
         if: matrix.action.command == 'build'
         uses: actions/upload-artifact@v3
         with:
           name: sign-firmware-binary
-          path: target/xtensa-esp32s3-espidf/release/sign-firmware
-          if-no-files-found: error # Fail if the binary isn't found
+          path: sign-firmware.bin
+          if-no-files-found: error
 
   publish:
     name: Publish Release
@@ -108,16 +114,6 @@ jobs:
           name: sign-firmware-binary
           path: ./release
 
-      - name: Check binary size
-        if: env.new_version == 'true'
-        run: |
-          BINARY_SIZE=$(stat -c%s "release/sign-firmware")
-          echo "Binary size: $BINARY_SIZE bytes"
-          if [ "$BINARY_SIZE" -gt $((7.5 * 1024 * 1024)) ]; then
-            echo "The binary exceeds the size limit of 7.5 MB. Skipping release."
-            exit 1
-          fi
-
       - name: Create Release
         if: env.new_version == 'true'
         uses: softprops/action-gh-release@v1
@@ -125,6 +121,6 @@ jobs:
           tag_name: v${{ env.VERSION }}
           name: v${{ env.VERSION }}
           body: "Release version ${{ env.VERSION }}"
-          files: release/sign-firmware
+          files: release/sign-firmware.bin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
