@@ -101,11 +101,22 @@ jobs:
       - name: Compare versions
         id: version-check
         run: |
-          if [ "${{ steps.get-latest-release.outputs.version }}" == "0.0.0" ]; then
-            echo "new_version=true" >> $GITHUB_ENV
-          elif [ "$(printf '%s\n' "${{ steps.get-latest-release.outputs.version }}" "$VERSION" | sort -V | head -n1)" != "${{ steps.get-latest-release.outputs.version }}" ]; then
+          LATEST_VERSION="${{ steps.get-latest-release.outputs.version }}"
+          CURRENT_VERSION="${{ env.VERSION }}"
+
+          # Debugging: Output both versions
+          echo "Latest release version: $LATEST_VERSION"
+          echo "Current version: $CURRENT_VERSION"
+
+          # Compare versions
+          if [ "$LATEST_VERSION" == "$CURRENT_VERSION" ]; then
+            echo "No new version. Skipping release."
+            echo "new_version=false" >> $GITHUB_ENV
+          elif [ "$(printf '%s\n' "$LATEST_VERSION" "$CURRENT_VERSION" | sort -V | head -n1)" == "$LATEST_VERSION" ]; then
+            echo "New version available."
             echo "new_version=true" >> $GITHUB_ENV
           else
+            echo "No new version."
             echo "new_version=false" >> $GITHUB_ENV
           fi
 
