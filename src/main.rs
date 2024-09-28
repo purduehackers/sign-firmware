@@ -24,8 +24,8 @@ use esp_idf_svc::{
     nvs::EspDefaultNvsPartition,
     ota::EspOta,
     sntp,
-    sys::{EspError},
-    timer::{EspTaskTimerService},
+    sys::EspError,
+    timer::EspTaskTimerService,
     tls::EspAsyncTls,
     wifi::{AsyncWifi, ClientConfiguration, Configuration, EspWifi},
 };
@@ -35,13 +35,13 @@ use http::Request;
 //     WifiDevice, WifiEvent, WifiStaDevice, WifiState,
 // };
 use lightning_time::LightningTime;
-use log::{info};
+use log::info;
 use sign_firmware::{leds_software_pwm, Block, EspTlsSocket, Leds};
 use url::Url;
 
 extern crate alloc;
-use core::{str::FromStr};
-use std::{net::ToSocketAddrs};
+use core::str::FromStr;
+use std::net::ToSocketAddrs;
 
 macro_rules! anyesp {
     ($err: expr) => {{
