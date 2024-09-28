@@ -84,7 +84,9 @@ jobs:
       - name: Compare versions
         id: version-check
         run: |
-          if [ "$(printf '%s\n' "${{ steps.get-latest-release.outputs.version }}" "$VERSION" | sort -V | head -n1)" != "${{ steps.get-latest-release.outputs.version }}" ]; then
+          if [ "${{ steps.get-latest-release.outputs.version }}" == "0.0.0" ]; then
+            echo "new_version=true" >> $GITHUB_ENV
+          elif [ "$(printf '%s\n' "${{ steps.get-latest-release.outputs.version }}" "$VERSION" | sort -V | head -n1)" != "${{ steps.get-latest-release.outputs.version }}" ]; then
             echo "new_version=true" >> $GITHUB_ENV
           else
             echo "new_version=false" >> $GITHUB_ENV
@@ -93,6 +95,16 @@ jobs:
       - name: Build for release
         if: env.new_version == 'true'
         run: cargo build --release
+
+      - name: Check binary size
+        if: env.new_version == 'true'
+        run: |
+          BINARY_SIZE=$(stat -c%s "target/release/sign-firmware")
+          echo "Binary size: $BINARY_SIZE bytes"
+          if [ "$BINARY_SIZE" -gt $((7.5 * 1024 * 1024)) ]; then
+            echo "The binary exceeds the size limit of 7.5 MB. Skipping release."
+            echo "new_version=false" >> $GITHUB_ENV
+          fi
 
       - name: Upload release artifact
         if: env.new_version == 'true'
