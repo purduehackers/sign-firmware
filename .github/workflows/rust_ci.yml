@@ -56,7 +56,8 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: sign-firmware-binary
-          path: target/release/sign-firmware
+          path: target/xtensa-esp32s3-espidf/release/sign-firmware
+          if-no-files-found: error # Fail if the binary isn't found
 
   publish:
     name: Publish Release
@@ -116,13 +117,6 @@ jobs:
             echo "The binary exceeds the size limit of 7.5 MB. Skipping release."
             exit 1
           fi
-
-      - name: Upload release artifact
-        if: env.new_version == 'true'
-        run: |
-          mkdir -p release
-          cp target/release/sign-firmware release/
-        shell: bash
 
       - name: Create Release
         if: env.new_version == 'true'
