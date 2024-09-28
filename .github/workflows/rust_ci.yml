@@ -47,3 +47,63 @@ jobs:
 
       - name: Run command
         run: cargo ${{ matrix.action.command }} ${{ matrix.action.args }}
+
+  publish:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    needs: rust-checks
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get Cargo version
+        id: cargo-version
+        run: echo "VERSION=$(grep '^version =' Cargo.toml | sed -E 's/version = \"([^\"]+)\"/\1/')" >> $GITHUB_ENV
+
+      - name: Get latest release version
+        id: get-latest-release
+        uses: actions/github-script@v6
+        with:
+          script: |
+            try {
+              const latestRelease = await github.repos.getLatestRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+              core.setOutput("version", latestRelease.data.tag_name.replace(/^v/, ''));
+            } catch (error) {
+              // No releases found, setting a very low default version
+              core.setOutput("version", "0.0.0");
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compare versions
+        id: version-check
+        run: |
+          if [ "$(printf '%s\n' "${{ steps.get-latest-release.outputs.version }}" "$VERSION" | sort -V | head -n1)" != "${{ steps.get-latest-release.outputs.version }}" ]; then
+            echo "new_version=true" >> $GITHUB_ENV
+          else
+            echo "new_version=false" >> $GITHUB_ENV
+
+      - name: Build for release
+        if: env.new_version == 'true'
+        run: cargo build --release
+
+      - name: Upload release artifact
+        if: env.new_version == 'true'
+        run: |
+          mkdir -p release
+          cp target/release/<your-binary-name> release/
+        shell: bash
+
+      - name: Create Release
+        if: env.new_version == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: v${{ env.VERSION }}
+          body: "Release version ${{ env.VERSION }}"
+          files: release/<your-binary-name>
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

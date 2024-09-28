@@ -34,7 +34,7 @@ log = { version = "0.4.21" }
 #     "embassy-net",
 #     "async",
 # ] }
-embassy-executor = { version = "0.6.0", features = ["nightly"] }
+# embassy-executor = { version = "0.6.0", features = ["nightly"] }
 embassy-sync = "0.6.0"
 embassy-time = { version = "*", features = ["generic-queue"] }
 # embedded-hal = "1.0.0"
