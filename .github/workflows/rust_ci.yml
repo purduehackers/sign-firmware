@@ -93,13 +93,11 @@ jobs:
           fi
 
       - name: Setup Rust
-        uses: actions/setup-rust@v1
+        uses: esp-rs/xtensa-toolchain@v1.5
         with:
-          toolchain: stable
-          override: true
-
-      - name: Install Custom Toolchain
-        run: rustup toolchain install esp
+          default: true
+          buildtargets: esp32s3
+          ldproxy: true
 
       - name: Build for release
         if: env.new_version == 'true'
