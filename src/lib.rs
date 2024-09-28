@@ -1,14 +1,29 @@
-#![no_std]
-
 // pub mod eeprom;
 // pub mod schema;
+#![feature(atomic_bool_fetch_not)]
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
-use embassy_time::{Duration, Ticker};
-use esp_hal::gpio::{AnyPin, Output};
+use esp_idf_svc::{
+    hal::{
+        gpio::{AnyOutputPin, Output, PinDriver},
+        interrupt::free,
+        task::watchdog::WatchdogSubscription,
+    },
+    sys::EspError,
+};
+use std::{
+    net::TcpStream,
+    sync::{atomic::AtomicBool, mpsc::Receiver},
+};
+use std::{
+    os::fd::{AsRawFd, IntoRawFd},
+    sync::mpsc::Sender,
+};
 
 pub struct Leds {
     pub buffer: [u8; 15],
+    _sender: Sender<[u8; 15]>,
+    b_safe: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -48,11 +63,15 @@ const GAMMA_LUT: [u8; 256] = [
     249, 251, 253, 255,
 ];
 
-static PWM_CONTROL: Channel<CriticalSectionRawMutex, [u8; 15], 1> = Channel::new();
+static _PWM_CONTROL: Channel<CriticalSectionRawMutex, [u8; 15], 1> = Channel::new();
 
 impl Leds {
-    pub fn create() -> Leds {
-        Leds { buffer: [0; 15] }
+    pub fn create(sender: Sender<[u8; 15]>) -> Leds {
+        Leds {
+            buffer: [0; 15],
+            _sender: sender,
+            b_safe: true,
+        }
     }
 
     pub async fn set_color(&mut self, color: palette::Srgb<u8>, block: Block) {
@@ -66,36 +85,140 @@ impl Leds {
         self.buffer[b] = GAMMA_LUT[color.blue as usize];
     }
 
-    pub async fn swap(&self) {
-        PWM_CONTROL.send(self.buffer).await;
+    pub async fn swap(&mut self) {
+        // self.sender.send(self.buffer).unwrap();
+        unsafe {
+            if self.b_safe {
+                A_BUF = self.buffer;
+            } else {
+                B_BUF = self.buffer;
+            }
+
+            self.b_safe = !FLAG.fetch_not(std::sync::atomic::Ordering::Relaxed);
+        }
+        // PWM_CONTROL.send(self.buffer).await;
     }
 }
 
-#[embassy_executor::task]
-pub async fn leds_software_pwm(mut led_pins: [Output<'static, AnyPin>; 15]) {
+pub static FLAG: AtomicBool = AtomicBool::new(true);
+pub static mut A_BUF: [u8; 15] = [0; 15];
+pub static mut B_BUF: [u8; 15] = [0; 15];
+
+// #[embassy_executor::task]
+pub fn leds_software_pwm<'d>(
+    mut led_pins: [PinDriver<'static, AnyOutputPin, Output>; 15],
+    mut wd: WatchdogSubscription<'d>,
+    _rx: Receiver<[u8; 15]>,
+) {
     let mut timer_value: u8 = 0;
     let mut last_buffer = [0_u8; 15];
 
     // Update at 120hz
-    let mut ticker = Ticker::every(Duration::from_hz(256 * 200));
+    // let mut ticker = Ticker::every(Duration::from_hz(256 * 200));
 
-    let pwm_receiver = PWM_CONTROL.receiver();
+    // let pwm_receiver = PWM_CONTROL.receiver();
 
     loop {
-        last_buffer = pwm_receiver.try_receive().unwrap_or(last_buffer);
+        // if last_buffer[0] == 0 {
+        //     last_buffer = pwm_receiver.try_receive().unwrap_or(last_buffer);
+        // }
+        // if let Ok(buf) = rx.try_recv() {
+        //     last_buffer = buf;
+        // }
 
-        for n in 0..15 {
-            if timer_value == 0 {
-                led_pins[n].set_high();
+        // last_buffer = rx.try_recv().unwrap_or(last_buffer);
+        free(|| {
+            last_buffer = unsafe {
+                if FLAG.fetch_and(true, std::sync::atomic::Ordering::Relaxed) {
+                    B_BUF
+                } else {
+                    A_BUF
+                }
+            };
+            // let guard = unsafe { critical_section::acquire() };
+
+            for n in 0..15 {
+                if timer_value == 0 {
+                    led_pins[n].set_high().unwrap();
+                }
+
+                if last_buffer[n] == timer_value {
+                    led_pins[n].set_low().unwrap();
+                }
             }
 
-            if last_buffer[n] == timer_value {
-                led_pins[n].set_low();
-            }
-        }
+            timer_value += 1;
+        });
+        wd.feed().unwrap();
+        // unsafe { critical_section::release(guard) };
 
-        timer_value += 1;
+        // ticker.next().await;
+    }
+}
 
-        ticker.next().await;
+pub struct EspTlsSocket(Option<async_io::Async<TcpStream>>);
+
+impl EspTlsSocket {
+    pub const fn new(socket: async_io::Async<TcpStream>) -> Self {
+        Self(Some(socket))
+    }
+
+    pub fn handle(&self) -> i32 {
+        self.0.as_ref().unwrap().as_raw_fd()
+    }
+
+    pub fn poll_readable(
+        &self,
+        ctx: &mut core::task::Context,
+    ) -> core::task::Poll<Result<(), esp_idf_svc::sys::EspError>> {
+        self.0
+            .as_ref()
+            .unwrap()
+            .poll_readable(ctx)
+            .map_err(|_| EspError::from_infallible::<{ esp_idf_svc::sys::ESP_FAIL }>())
+    }
+
+    pub fn poll_writeable(
+        &self,
+        ctx: &mut core::task::Context,
+    ) -> core::task::Poll<Result<(), esp_idf_svc::sys::EspError>> {
+        self.0
+            .as_ref()
+            .unwrap()
+            .poll_writable(ctx)
+            .map_err(|_| EspError::from_infallible::<{ esp_idf_svc::sys::ESP_FAIL }>())
+    }
+
+    fn release(&mut self) -> Result<(), esp_idf_svc::sys::EspError> {
+        let socket = self.0.take().unwrap();
+        socket.into_inner().unwrap().into_raw_fd();
+
+        Ok(())
+    }
+}
+
+impl esp_idf_svc::tls::Socket for EspTlsSocket {
+    fn handle(&self) -> i32 {
+        EspTlsSocket::handle(self)
+    }
+
+    fn release(&mut self) -> Result<(), esp_idf_svc::sys::EspError> {
+        EspTlsSocket::release(self)
+    }
+}
+
+impl esp_idf_svc::tls::PollableSocket for EspTlsSocket {
+    fn poll_readable(
+        &self,
+        ctx: &mut core::task::Context,
+    ) -> core::task::Poll<Result<(), esp_idf_svc::sys::EspError>> {
+        EspTlsSocket::poll_readable(self, ctx)
+    }
+
+    fn poll_writable(
+        &self,
+        ctx: &mut core::task::Context,
+    ) -> core::task::Poll<Result<(), esp_idf_svc::sys::EspError>> {
+        EspTlsSocket::poll_writeable(self, ctx)
     }
 }

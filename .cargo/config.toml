@@ -1,14 +1,36 @@
-[target.xtensa-esp32s3-none-elf]
-runner = "espflash flash --monitor"
+# [target.xtensa-esp32s3-none-elf]
+# runner = "espflash flash --monitor"
 
 
-[env]
-ESP_LOGLEVEL = "INFO"
+# [env]
+# ESP_LOGLEVEL = "INFO"
 
+# [build]
+# rustflags = ["-C", "link-arg=-nostartfiles"]
+
+# target = "xtensa-esp32s3-none-elf"
+
+# [unstable]
+# build-std = ["alloc", "core"]
 [build]
-rustflags = ["-C", "link-arg=-nostartfiles"]
+target = "xtensa-esp32s3-espidf"
 
-target = "xtensa-esp32s3-none-elf"
+[target.xtensa-esp32s3-espidf]
+linker = "ldproxy"
+runner = "espflash flash --monitor" # Select this runner for espflash v3.x.x
+rustflags = [
+    "--cfg",
+    "espidf_time64",
+] # Extending time_t for ESP IDF 5: https://github.com/esp-rs/rust/issues/110
 
 [unstable]
-build-std = ["alloc", "core"]
+build-std = ["std", "panic_abort"]
+
+[env]
+MCU = "esp32s3"
+# Note: this variable is not used by the pio builder (`cargo build --features pio`)
+ESP_IDF_VERSION = "v5.2.2"
+ESP_LOGLEVEL = "DEBUG"
+
+# Workaround for https://github.com/esp-rs/esp-idf-template/issues/174
+CRATE_CC_NO_DEFAULTS = "1"
