@@ -53,7 +53,7 @@ jobs:
       - name: Convert binary to .bin format
         if: matrix.action.command == 'build'
         run: |
-          apt-get install libudev-dev
+          apt-get install -y libudev-dev
           cargo install espflash
           espflash save-image --chip esp32s3 target/xtensa-esp32s3-espidf/release/sign-firmware sign-firmware.bin -T partitions.csv
           ls -la # List files to verify conversion
