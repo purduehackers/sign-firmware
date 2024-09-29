@@ -82,35 +82,28 @@ jobs:
 
       - name: Get latest release version
         id: get-latest-release
-        uses: actions/github-script@v6
-        with:
-          script: |
-            try {
-              // Fetch the latest release from the repository
-              const latestRelease = await github.repos.getLatestRelease({
-                owner: context.repo.owner,
-                repo: context.repo.repo
-              });
+        run: |
+          # Fetch the latest release using GitHub API
+          response=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/releases/latest)
 
-              // Debugging: Output the full response for inspection
-              console.log("Full response from getLatestRelease API call:");
-              console.log(JSON.stringify(latestRelease, null, 2));
+          # Debug: Output the full API response
+          echo "API Response: $response"
 
-              // Extract and log the tag name (version) of the latest release
-              const latestVersion = latestRelease.data.tag_name.replace(/^v/, '');
-              console.log(`Extracted version: ${latestVersion}`);
+          # Extract the version (tag_name) from the response
+          latest_version=$(echo "$response" | jq -r .tag_name | sed 's/^v//')
 
-              // Set the output to be used in later steps
-              core.setOutput("version", latestVersion);
-            } catch (error) {
-              // Log detailed error information if the request fails
-              console.error("Error fetching the latest release:");
-              console.error(error);
+          # Debug: Output the extracted version
+          echo "Latest release version: $latest_version"
 
-              // Set a default version if no release is found or an error occurs
-              console.log("No releases found or error occurred. Defaulting to version 0.0.0");
-              core.setOutput("version", "0.0.0");
-            }
+          # If no release is found, set default version to 0.0.0
+          if [ "$latest_version" == "null" ] || [ -z "$latest_version" ]; then
+            latest_version="0.0.0"
+            echo "No releases found. Defaulting to version 0.0.0"
+          fi
+
+          # Set the output for later steps
+          echo "::set-output name=version::$latest_version"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
