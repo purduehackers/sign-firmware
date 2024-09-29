@@ -86,13 +86,29 @@ jobs:
         with:
           script: |
             try {
+              // Fetch the latest release from the repository
               const latestRelease = await github.repos.getLatestRelease({
                 owner: context.repo.owner,
                 repo: context.repo.repo
               });
-              core.setOutput("version", latestRelease.data.tag_name.replace(/^v/, ''));
+
+              // Debugging: Output the full response for inspection
+              console.log("Full response from getLatestRelease API call:");
+              console.log(JSON.stringify(latestRelease, null, 2));
+
+              // Extract and log the tag name (version) of the latest release
+              const latestVersion = latestRelease.data.tag_name.replace(/^v/, '');
+              console.log(`Extracted version: ${latestVersion}`);
+
+              // Set the output to be used in later steps
+              core.setOutput("version", latestVersion);
             } catch (error) {
-              // No releases found, setting a very low default version
+              // Log detailed error information if the request fails
+              console.error("Error fetching the latest release:");
+              console.error(error);
+
+              // Set a default version if no release is found or an error occurs
+              console.log("No releases found or error occurred. Defaulting to version 0.0.0");
               core.setOutput("version", "0.0.0");
             }
         env:
