@@ -1525,6 +1525,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-io",
+ "build-time",
  "chrono",
  "chrono-tz",
  "dotenvy_macro",

@@ -2,9 +2,10 @@
 
 use anyhow::anyhow;
 use async_io::Async;
+use build_time::build_time_utc;
 use chrono_tz::US::Eastern;
 use dotenvy_macro::dotenv;
-use embassy_time::Timer;
+use embassy_time::{with_timeout, Timer};
 use std::{net::TcpStream, sync::mpsc::channel, time::Duration};
 // use esp_backtrace as _;
 // use esp_hal_embassy::{Executor, InterruptExecutor};
@@ -14,13 +15,14 @@ use esp_idf_svc::{
         cpu::Core,
         gpio::{OutputPin, PinDriver},
         peripherals::Peripherals,
+        reset::restart,
         task::{
             block_on,
             thread::ThreadSpawnConfiguration,
             watchdog::{TWDTConfig, TWDTDriver},
         },
     },
-    io::{self, Write},
+    io::{self, asynch::Read, Write},
     nvs::EspDefaultNvsPartition,
     ota::EspOta,
     sntp,
@@ -35,7 +37,7 @@ use http::Request;
 //     WifiDevice, WifiEvent, WifiStaDevice, WifiState,
 // };
 use lightning_time::LightningTime;
-use log::info;
+use log::{debug, info};
 use sign_firmware::{leds_software_pwm, Block, EspTlsSocket, Leds};
 use url::Url;
 
@@ -98,13 +100,70 @@ fn create_raw_request<T>(request: http::Request<T>) -> String {
     request_text
 }
 
+async fn handle_redirect(url: &str) -> anyhow::Result<EspAsyncTls<EspTlsSocket>> {
+    let request = Request::builder()
+        .method("GET")
+        .header("User-Agent", "PHSign/1.0.0")
+        .header("Host", "github.com")
+        .uri(url)
+        .body(())
+        .unwrap();
+
+    let mut tls = generate_tls(url).await?;
+
+    let request_text = create_raw_request(request);
+
+    tls.write_all(request_text.as_bytes())
+        .await
+        .map_err(convert_error)?;
+
+    let mut body = [0; 8192];
+
+    let _read = io::utils::asynch::try_read_full(&mut tls, &mut body)
+        .await
+        .map_err(|(e, _)| e)
+        .unwrap();
+
+    let body = String::from_utf8(body.into()).expect("valid UTF8");
+
+    let splits = body.split("\r\n");
+
+    for split in splits {
+        if split.to_lowercase().starts_with("location: ") {
+            let location = split.split(": ").nth(1).expect("location value");
+
+            let request = Request::builder()
+                .method("GET")
+                .header("User-Agent", "PHSign/1.0.0")
+                .header("Host", "githubusercontent.com")
+                .uri(location)
+                .body(())
+                .unwrap();
+
+            let mut tls = generate_tls(location).await?;
+            let request_text = create_raw_request(request);
+
+            tls.write_all(request_text.as_bytes())
+                .await
+                .map_err(convert_error)?;
+
+            return Ok(tls);
+        }
+    }
+
+    unreachable!("location must be in returned value!")
+}
+
 async fn self_update() -> anyhow::Result<()> {
+    info!("Checking for self-update");
+
     let manifest: GithubResponse = {
         let url = "https://api.github.com/repos/purduehackers/sign-firmware/releases/latest";
 
         let request = Request::builder()
             .method("GET")
             .header("User-Agent", "PHSign/1.0.0")
+            .header("Host", "api.github.com")
             .uri(url)
             .body(())
             .unwrap();
@@ -124,7 +183,12 @@ async fn self_update() -> anyhow::Result<()> {
             .map_err(|(e, _)| e)
             .unwrap();
 
-        serde_json::from_slice(&body).expect("Valid parse for GitHub manifest")
+        let body = String::from_utf8(body.into()).expect("valid UTF8");
+
+        let ind = body.find("\r\n\r\n").expect("body start");
+
+        serde_json::from_str(&body[ind + 4..].trim().trim_end_matches(char::from(0)))
+            .expect("Valid parse for GitHub manifest")
     };
 
     let local = semver::Version::new(
@@ -133,9 +197,10 @@ async fn self_update() -> anyhow::Result<()> {
         env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
     );
 
-    let remote = semver::Version::from_str(&manifest.tag_name).expect("valid semver");
+    let remote = semver::Version::from_str(&manifest.tag_name[1..]).expect("valid semver");
 
-    if remote > local {
+    if true {
+        info!("New release found! Downloading and updating");
         // Grab new release and update
         let url = manifest
             .assets
@@ -143,19 +208,75 @@ async fn self_update() -> anyhow::Result<()> {
             .expect("release to contain assets")
             .browser_download_url
             .clone();
-        let request = Request::builder()
-            .method("GET")
-            .header("User-Agent", "PHSign/1.0.0")
-            .uri(&url)
-            .body(())
-            .unwrap();
 
-        let mut tls = generate_tls(&url).await?;
-        let request_text = create_raw_request(request);
+        let mut tls = handle_redirect(&url).await?;
 
-        tls.write_all(request_text.as_bytes())
-            .await
-            .map_err(convert_error)?;
+        // Consume until \r\n\r\n (body)
+        info!("Consuming headers...");
+        {
+            #[derive(Debug)]
+            enum ParseConsumerState {
+                None,
+                FirstCR,
+                FirstNL,
+                SecondCR,
+            }
+
+            let mut state = ParseConsumerState::None;
+
+            let mut consumption_buffer = [0; 1];
+
+            loop {
+                let read = tls
+                    .read(&mut consumption_buffer)
+                    .await
+                    .map_err(convert_error)
+                    .expect("read byte for parse consumer");
+                // {
+                //     let read = consumption_buffer[0] as char;
+                //     if read.is_ascii() {
+                //         info!("{state:?}: {read}");
+                //     } else {
+                //         info!("{state:?}: INVALID ASCII");
+                //     }
+                // }
+                if read == 0 {
+                    panic!("Invalid update parse! Reached EOF before valid body");
+                }
+                state = match state {
+                    ParseConsumerState::None => {
+                        if consumption_buffer[0] == b'\r' {
+                            ParseConsumerState::FirstCR
+                        } else {
+                            ParseConsumerState::None
+                        }
+                    }
+                    ParseConsumerState::FirstCR => {
+                        if consumption_buffer[0] == b'\n' {
+                            ParseConsumerState::FirstNL
+                        } else {
+                            ParseConsumerState::None
+                        }
+                    }
+                    ParseConsumerState::FirstNL => {
+                        if consumption_buffer[0] == b'\r' {
+                            ParseConsumerState::SecondCR
+                        } else {
+                            ParseConsumerState::None
+                        }
+                    }
+                    ParseConsumerState::SecondCR => {
+                        if consumption_buffer[0] == b'\n' {
+                            break;
+                        } else {
+                            ParseConsumerState::None
+                        }
+                    }
+                }
+            }
+        }
+
+        info!("Headers consumed");
 
         let mut body = [0; 8192];
 
@@ -163,24 +284,37 @@ async fn self_update() -> anyhow::Result<()> {
 
         let mut update = ota.initiate_update().expect("update to initialize");
 
+        let mut chunk = 0_usize;
         loop {
-            let read = io::utils::asynch::try_read_full(&mut tls, &mut body)
-                .await
-                .map_err(|(e, _)| e)
-                .unwrap();
+            let read =
+                with_timeout(embassy_time::Duration::from_secs(10), tls.read(&mut body)).await;
 
-            update.write_all(&body[..read]).expect("write update data");
+            match read {
+                Ok(Ok(read)) => {
+                    info!("[CHUNK {chunk:>4}] Read {read:>4}");
 
-            if read == 0 {
-                break;
-            }
+                    update.write_all(&body[..read]).expect("write update data");
+
+                    if read == 0 {
+                        break;
+                    }
+
+                    chunk += 1;
+                }
+                Ok(Err(e)) => e.panic(),
+                Err(_) => break,
+            };
         }
+
+        info!("Update completed! Activating...");
 
         update
             .finish()
             .expect("update finalization to work")
             .activate()
             .expect("activation to work");
+
+        restart();
     }
 
     Ok(())
@@ -210,11 +344,6 @@ async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
     connect_to_network(&mut wifi)
         .await
         .expect("wifi connection");
-
-    EspOta::new()
-        .expect("ESP OTA")
-        .mark_running_slot_valid()
-        .expect("running slot valid");
 
     // Check for update
     self_update().await.expect("Self-update to work");
@@ -250,6 +379,19 @@ fn main() {
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
 
+    info!(
+        "Purdue Hackers Sign Firmware v.{}.{}.{} (Built {})",
+        env!("CARGO_PKG_VERSION_MAJOR"),
+        env!("CARGO_PKG_VERSION_MINOR"),
+        env!("CARGO_PKG_VERSION_PATCH"),
+        build_time_utc!()
+    );
+
+    EspOta::new()
+        .expect("ESP OTA")
+        .mark_running_slot_valid()
+        .expect("running slot valid");
+
     let peripherals = Peripherals::take().unwrap();
 
     // let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
@@ -279,25 +421,29 @@ fn main() {
     )
     .expect("wifi init");
 
+    info!("Wi-Fi initialized");
+
     let _sntp = sntp::EspSntp::new_default().unwrap();
 
-    let leds = [
-        PinDriver::output(peripherals.pins.gpio1.downgrade_output()).unwrap(),
-        PinDriver::output(peripherals.pins.gpio2.downgrade_output()).unwrap(),
-        PinDriver::output(peripherals.pins.gpio4.downgrade_output()).unwrap(),
-        PinDriver::output(peripherals.pins.gpio5.downgrade_output()).unwrap(),
-        PinDriver::output(peripherals.pins.gpio6.downgrade_output()).unwrap(),
-        PinDriver::output(peripherals.pins.gpio7.downgrade_output()).unwrap(),
-        PinDriver::output(peripherals.pins.gpio8.downgrade_output()).unwrap(),
-        PinDriver::output(peripherals.pins.gpio9.downgrade_output()).unwrap(),
-        PinDriver::output(peripherals.pins.gpio10.downgrade_output()).unwrap(),
-        PinDriver::output(peripherals.pins.gpio11.downgrade_output()).unwrap(),
-        PinDriver::output(peripherals.pins.gpio12.downgrade_output()).unwrap(),
-        PinDriver::output(peripherals.pins.gpio13.downgrade_output()).unwrap(),
-        PinDriver::output(peripherals.pins.gpio14.downgrade_output()).unwrap(),
-        PinDriver::output(peripherals.pins.gpio17.downgrade_output()).unwrap(),
-        PinDriver::output(peripherals.pins.gpio18.downgrade_output()).unwrap(),
-    ];
+    info!("SNTP initialized");
+
+    // let leds = [
+    //     PinDriver::output(peripherals.pins.gpio1.downgrade_output()).unwrap(),
+    //     PinDriver::output(peripherals.pins.gpio2.downgrade_output()).unwrap(),
+    //     PinDriver::output(peripherals.pins.gpio4.downgrade_output()).unwrap(),
+    //     PinDriver::output(peripherals.pins.gpio5.downgrade_output()).unwrap(),
+    //     PinDriver::output(peripherals.pins.gpio6.downgrade_output()).unwrap(),
+    //     PinDriver::output(peripherals.pins.gpio7.downgrade_output()).unwrap(),
+    //     PinDriver::output(peripherals.pins.gpio8.downgrade_output()).unwrap(),
+    //     PinDriver::output(peripherals.pins.gpio9.downgrade_output()).unwrap(),
+    //     PinDriver::output(peripherals.pins.gpio10.downgrade_output()).unwrap(),
+    //     PinDriver::output(peripherals.pins.gpio11.downgrade_output()).unwrap(),
+    //     PinDriver::output(peripherals.pins.gpio12.downgrade_output()).unwrap(),
+    //     PinDriver::output(peripherals.pins.gpio13.downgrade_output()).unwrap(),
+    //     PinDriver::output(peripherals.pins.gpio14.downgrade_output()).unwrap(),
+    //     PinDriver::output(peripherals.pins.gpio17.downgrade_output()).unwrap(),
+    //     PinDriver::output(peripherals.pins.gpio18.downgrade_output()).unwrap(),
+    // ];
 
     // static EXECUTOR_CORE_1: StaticCell<InterruptExecutor<1>> = StaticCell::new();
     // let executor_core1 = InterruptExecutor::new(sw_ints.software_interrupt1);
@@ -328,44 +474,44 @@ fn main() {
 
     let (tx, rx) = channel();
 
-    let config = TWDTConfig {
-        duration: Duration::from_secs(2),
-        panic_on_trigger: true,
-        subscribed_idle_tasks: Core::Core0.into(),
-    };
-    let mut driver = TWDTDriver::new(peripherals.twdt, &config).unwrap();
+    // let config = TWDTConfig {
+    //     duration: Duration::from_secs(2),
+    //     panic_on_trigger: true,
+    //     subscribed_idle_tasks: Core::Core0.into(),
+    // };
+    // let mut driver = TWDTDriver::new(peripherals.twdt, &config).unwrap();
 
-    ThreadSpawnConfiguration {
-        name: None,
-        stack_size: 8000,
-        priority: 24,
-        inherit: false,
-        pin_to_core: Some(Core::Core1),
-    }
-    .set()
-    .unwrap();
-    std::thread::spawn(move || {
-        let watchdog = driver.watch_current_task().unwrap();
-        // let mut leds = leds;
-        // let mut last_buffer = [0; 15];
-        // let timer = EspTimerService::new()
-        //     .unwrap()
-        //     .timer(move || {
-        //         leds_software_pwm_timer(&mut leds, last_buffer);
-        //     })
-        //     .unwrap();
+    // ThreadSpawnConfiguration {
+    //     name: None,
+    //     stack_size: 8000,
+    //     priority: 24,
+    //     inherit: false,
+    //     pin_to_core: Some(Core::Core1),
+    // }
+    // .set()
+    // .unwrap();
+    // std::thread::spawn(move || {
+    //     let watchdog = driver.watch_current_task().unwrap();
+    //     // let mut leds = leds;
+    //     // let mut last_buffer = [0; 15];
+    //     // let timer = EspTimerService::new()
+    //     //     .unwrap()
+    //     //     .timer(move || {
+    //     //         leds_software_pwm_timer(&mut leds, last_buffer);
+    //     //     })
+    //     //     .unwrap();
 
-        // timer
-        //     .every(Duration::from_secs_f64(1.0 / (256.0 * 120.0)))
-        //     .unwrap();
+    //     // timer
+    //     //     .every(Duration::from_secs_f64(1.0 / (256.0 * 120.0)))
+    //     //     .unwrap();
 
-        // loop {
-        //     last_buffer = rx.try_recv().unwrap_or(last_buffer);
-        //     watchdog.feed().expect("watchdog ok");
-        // }
-        // block_on(leds_software_pwm(leds));
-        leds_software_pwm(leds, watchdog, rx);
-    });
+    //     // loop {
+    //     //     last_buffer = rx.try_recv().unwrap_or(last_buffer);
+    //     //     watchdog.feed().expect("watchdog ok");
+    //     // }
+    //     // block_on(leds_software_pwm(leds));
+    //     leds_software_pwm(leds, watchdog, rx);
+    // });
 
     let leds = Leds::create(tx);
 
