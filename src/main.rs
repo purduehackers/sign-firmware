@@ -519,8 +519,8 @@ fn main() {
     ];
 
     // The buttonled and button switch pins are reversed from the original board schematic since pin 36 is input only (oops)
-    let button_led = PinDriver::output(peripherals.pins.gpio15);
-    let button_switch = PinDriver::input(peripherals.pins.gpio36);
+    let _button_led = PinDriver::output(peripherals.pins.gpio15);
+    let _button_switch = PinDriver::input(peripherals.pins.gpio36);
 
     // let leds = [
     //     PinDriver::output(peripherals.pins.gpio1.downgrade_output()).unwrap(),
