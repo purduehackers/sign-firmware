@@ -145,7 +145,7 @@ async fn handle_redirect(url: &str) -> anyhow::Result<EspAsyncTls<EspTlsSocket>>
     unreachable!("location must be in returned value!")
 }
 
-async fn self_update() -> anyhow::Result<()> {
+async fn self_update(leds: &mut Leds) -> anyhow::Result<()> {
     info!("Checking for self-update");
 
     let manifest: GithubResponse = {
@@ -192,6 +192,7 @@ async fn self_update() -> anyhow::Result<()> {
 
     if remote > local {
         info!("New release found! Downloading and updating");
+        leds.set_all_colors(Rgb::new(0, 255, 0));
         // Grab new release and update
         let url = manifest
             .assets
@@ -327,40 +328,34 @@ async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
     // .unwrap();
 
     // let mut client = Client::wrap(&mut EspHttpConnection::new(&Default::default()).unwrap());
+
+    // Red before wifi
+    leds.set_all_colors(Rgb::new(255, 0, 0));
+
     connect_to_network(&mut wifi)
         .await
         .expect("wifi connection");
 
-    // Set all LEDs to white while checking for update
-    for block in [
-        Block::Top,
-        Block::Center,
-        Block::BottomLeft,
-        Block::Right,
-        Block::BottomRight,
-    ] {
-        leds.set_color(Rgb::new(255, 255, 255), block).await;
-    }
+    // Blue before update
+    leds.set_all_colors(Rgb::new(0, 0, 255));
 
     // Check for update
-    self_update().await.expect("Self-update to work");
+    self_update(&mut leds).await.expect("Self-update to work");
 
     loop {
         let colors =
             LightningTime::from(chrono::offset::Local::now().with_timezone(&Eastern).time())
                 .colors();
 
-        leds.set_color(colors.bolt, Block::BottomLeft).await;
+        leds.set_color(colors.bolt, Block::BottomLeft);
 
         for block in [Block::Top, Block::Center] {
-            leds.set_color(colors.zap, block).await;
+            leds.set_color(colors.zap, block);
         }
 
         for block in [Block::Right, Block::BottomRight] {
-            leds.set_color(colors.spark, block).await;
+            leds.set_color(colors.spark, block);
         }
-
-        // leds.swap().await;
 
         Timer::after_millis(1000).await;
     }

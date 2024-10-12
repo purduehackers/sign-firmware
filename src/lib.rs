@@ -51,7 +51,7 @@ impl Leds {
         Leds { channels }
     }
 
-    pub async fn set_color(&mut self, color: palette::Srgb<u8>, block: Block) {
+    pub fn set_color(&mut self, color: palette::Srgb<u8>, block: Block) {
         let r = block.channel_for_color(Color::Red);
         self.channels[r]
             .set_duty(GAMMA_LUT[color.red as usize] as u32)
@@ -66,6 +66,18 @@ impl Leds {
         self.channels[b]
             .set_duty(GAMMA_LUT[color.blue as usize] as u32)
             .unwrap();
+    }
+
+    pub fn set_all_colors(&mut self, color: palette::Srgb<u8>) {
+        for block in [
+            Block::BottomLeft,
+            Block::BottomRight,
+            Block::Center,
+            Block::Right,
+            Block::Top,
+        ] {
+            self.set_color(color, block);
+        }
     }
 }
 
