@@ -27,6 +27,7 @@ use esp_idf_svc::{
 use http::Request;
 use lightning_time::LightningTime;
 use log::info;
+use palette::rgb::Rgb;
 use sign_firmware::{Block, EspTlsSocket, Leds};
 use std::net::TcpStream;
 use url::Url;
@@ -329,6 +330,17 @@ async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
     connect_to_network(&mut wifi)
         .await
         .expect("wifi connection");
+
+    // Set all LEDs to white while checking for update
+    for block in [
+        Block::Top,
+        Block::Center,
+        Block::BottomLeft,
+        Block::Right,
+        Block::BottomRight,
+    ] {
+        leds.set_color(Rgb::new(255, 255, 255), block).await;
+    }
 
     // Check for update
     self_update().await.expect("Self-update to work");
