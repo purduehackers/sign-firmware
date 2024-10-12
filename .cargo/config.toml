@@ -18,7 +18,7 @@ target = "xtensa-esp32-espidf"
 [target.xtensa-esp32-espidf]
 linker = "ldproxy"
 runner = "espflash flash --before no-reset --partition-table partitions.csv --flash-size 16mb"
-#runner = "espflash flash --monitor" # Select this runner for espflash v3.x.x
+#runner = "espflash flash --monitor --partition-table partitions.csv --flash-size 16mb" # Select this runner for espflash v3.x.x
 rustflags = [
     "--cfg",
     "espidf_time64",
