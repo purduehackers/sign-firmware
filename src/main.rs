@@ -292,6 +292,8 @@ async fn self_update() -> anyhow::Result<()> {
             .expect("activation to work");
 
         restart();
+    } else {
+        info!("Already on latest version.");
     }
 
     Ok(())
@@ -556,7 +558,15 @@ async fn connect_to_network(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::R
 
     wifi.start().await.map_err(convert_error)?;
 
-    wifi.connect().await.map_err(convert_error)?;
+    // Connect but with a longer timeout
+    wifi.wifi_mut().connect().map_err(convert_error)?;
+    wifi.wifi_wait(
+        |this| this.wifi().is_connected().map(|s| !s),
+        Some(std::time::Duration::from_secs(60)),
+    )
+    .await?;
+
+    // wifi.connect().await.map_err(convert_error)?;
 
     wifi.wait_netif_up().await.map_err(convert_error)?;
 
