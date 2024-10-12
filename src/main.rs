@@ -6,23 +6,13 @@ use build_time::build_time_utc;
 use chrono_tz::US::Eastern;
 use dotenvy_macro::dotenv;
 use embassy_time::{with_timeout, Timer};
-use std::{net::TcpStream, sync::mpsc::channel, time::Duration};
+use std::{net::TcpStream, sync::mpsc::channel};
 // use esp_backtrace as _;
 // use esp_hal_embassy::{Executor, InterruptExecutor};
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
-    hal::{
-        cpu::Core,
-        gpio::{OutputPin, PinDriver},
-        peripherals::Peripherals,
-        reset::restart,
-        task::{
-            block_on,
-            thread::ThreadSpawnConfiguration,
-            watchdog::{TWDTConfig, TWDTDriver},
-        },
-    },
-    io::{self, asynch::Read, Write},
+    hal::{peripherals::Peripherals, reset::restart, task::block_on},
+    io::{self, Write},
     nvs::EspDefaultNvsPartition,
     ota::EspOta,
     sntp,
@@ -37,8 +27,8 @@ use http::Request;
 //     WifiDevice, WifiEvent, WifiStaDevice, WifiState,
 // };
 use lightning_time::LightningTime;
-use log::{debug, info};
-use sign_firmware::{leds_software_pwm, Block, EspTlsSocket, Leds};
+use log::info;
+use sign_firmware::{Block, EspTlsSocket, Leds};
 use url::Url;
 
 extern crate alloc;
@@ -140,7 +130,7 @@ async fn handle_redirect(url: &str) -> anyhow::Result<EspAsyncTls<EspTlsSocket>>
                 .body(())
                 .unwrap();
 
-            let mut tls = generate_tls(location).await?;
+            let tls = generate_tls(location).await?;
             let request_text = create_raw_request(request);
 
             tls.write_all(request_text.as_bytes())
@@ -187,17 +177,17 @@ async fn self_update() -> anyhow::Result<()> {
 
         let ind = body.find("\r\n\r\n").expect("body start");
 
-        serde_json::from_str(&body[ind + 4..].trim().trim_end_matches(char::from(0)))
+        serde_json::from_str(body[ind + 4..].trim().trim_end_matches(char::from(0)))
             .expect("Valid parse for GitHub manifest")
     };
 
-    let local = semver::Version::new(
+    let _local = semver::Version::new(
         env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap(),
         env!("CARGO_PKG_VERSION_MINOR").parse().unwrap(),
         env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
     );
 
-    let remote = semver::Version::from_str(&manifest.tag_name[1..]).expect("valid semver");
+    let _remote = semver::Version::from_str(&manifest.tag_name[1..]).expect("valid semver");
 
     if true {
         info!("New release found! Downloading and updating");
@@ -209,7 +199,7 @@ async fn self_update() -> anyhow::Result<()> {
             .browser_download_url
             .clone();
 
-        let mut tls = handle_redirect(&url).await?;
+        let tls = handle_redirect(&url).await?;
 
         // Consume until \r\n\r\n (body)
         info!("Consuming headers...");
@@ -472,7 +462,7 @@ fn main() {
     //     .unwrap();
     // }
 
-    let (tx, rx) = channel();
+    let (tx, _rx) = channel();
 
     // let config = TWDTConfig {
     //     duration: Duration::from_secs(2),
