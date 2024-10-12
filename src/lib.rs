@@ -1,24 +1,9 @@
 // pub mod eeprom;
 // pub mod schema;
 
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
-use esp_idf_svc::{
-    hal::{
-        gpio::{AnyOutputPin, Output, PinDriver},
-        interrupt::free,
-        ledc::LedcDriver,
-        task::watchdog::WatchdogSubscription,
-    },
-    sys::EspError,
-};
-use std::{
-    net::TcpStream,
-    sync::{atomic::AtomicBool, mpsc::Receiver},
-};
-use std::{
-    os::fd::{AsRawFd, IntoRawFd},
-    sync::mpsc::Sender,
-};
+use esp_idf_svc::{hal::ledc::LedcDriver, sys::EspError};
+use std::net::TcpStream;
+use std::os::fd::{AsRawFd, IntoRawFd};
 
 pub struct Leds {
     channels: [LedcDriver<'static>; 15],
@@ -68,13 +53,19 @@ impl Leds {
 
     pub async fn set_color(&mut self, color: palette::Srgb<u8>, block: Block) {
         let r = block.channel_for_color(Color::Red);
-        self.channels[r].set_duty(color.red as u32);
+        self.channels[r]
+            .set_duty(GAMMA_LUT[color.red as usize] as u32)
+            .unwrap();
 
         let g = block.channel_for_color(Color::Green);
-        self.channels[g].set_duty(color.green as u32);
+        self.channels[g]
+            .set_duty(GAMMA_LUT[color.green as usize] as u32)
+            .unwrap();
 
         let b = block.channel_for_color(Color::Blue);
-        self.channels[b].set_duty(color.blue as u32);
+        self.channels[b]
+            .set_duty(GAMMA_LUT[color.blue as usize] as u32)
+            .unwrap();
     }
 }
 

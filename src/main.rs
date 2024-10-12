@@ -9,7 +9,7 @@ use embassy_time::{with_timeout, Timer};
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     hal::{
-        gpio::{OutputPin, PinDriver},
+        gpio::PinDriver,
         ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver},
         peripherals::Peripherals,
         reset::restart,
@@ -28,7 +28,7 @@ use http::Request;
 use lightning_time::LightningTime;
 use log::info;
 use sign_firmware::{Block, EspTlsSocket, Leds};
-use std::{net::TcpStream, sync::mpsc::channel};
+use std::net::TcpStream;
 use url::Url;
 
 extern crate alloc;
