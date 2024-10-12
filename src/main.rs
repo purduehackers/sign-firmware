@@ -6,9 +6,6 @@ use build_time::build_time_utc;
 use chrono_tz::US::Eastern;
 use dotenvy_macro::dotenv;
 use embassy_time::{with_timeout, Timer};
-use std::{net::TcpStream, sync::mpsc::channel};
-// use esp_backtrace as _;
-// use esp_hal_embassy::{Executor, InterruptExecutor};
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     hal::{peripherals::Peripherals, reset::restart, task::block_on},
@@ -22,13 +19,10 @@ use esp_idf_svc::{
     wifi::{AsyncWifi, ClientConfiguration, Configuration, EspWifi},
 };
 use http::Request;
-// use esp_wifi::wifi::{
-//     ClientConfiguration, Configuration, EapClientConfiguration, TtlsPhase2Method, WifiController,
-//     WifiDevice, WifiEvent, WifiStaDevice, WifiState,
-// };
 use lightning_time::LightningTime;
 use log::info;
 use sign_firmware::{Block, EspTlsSocket, Leds};
+use std::{net::TcpStream, sync::mpsc::channel};
 use url::Url;
 
 extern crate alloc;
@@ -181,15 +175,15 @@ async fn self_update() -> anyhow::Result<()> {
             .expect("Valid parse for GitHub manifest")
     };
 
-    let _local = semver::Version::new(
+    let local = semver::Version::new(
         env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap(),
         env!("CARGO_PKG_VERSION_MINOR").parse().unwrap(),
         env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
     );
 
-    let _remote = semver::Version::from_str(&manifest.tag_name[1..]).expect("valid semver");
+    let remote = semver::Version::from_str(&manifest.tag_name[1..]).expect("valid semver");
 
-    if true {
+    if remote > local {
         info!("New release found! Downloading and updating");
         // Grab new release and update
         let url = manifest
@@ -222,14 +216,7 @@ async fn self_update() -> anyhow::Result<()> {
                     .await
                     .map_err(convert_error)
                     .expect("read byte for parse consumer");
-                // {
-                //     let read = consumption_buffer[0] as char;
-                //     if read.is_ascii() {
-                //         info!("{state:?}: {read}");
-                //     } else {
-                //         info!("{state:?}: INVALID ASCII");
-                //     }
-                // }
+
                 if read == 0 {
                     panic!("Invalid update parse! Reached EOF before valid body");
                 }
