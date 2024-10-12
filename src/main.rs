@@ -8,7 +8,13 @@ use dotenvy_macro::dotenv;
 use embassy_time::{with_timeout, Timer};
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
-    hal::{peripherals::Peripherals, reset::restart, task::block_on},
+    hal::{
+        gpio::{OutputPin, PinDriver},
+        ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver},
+        peripherals::Peripherals,
+        reset::restart,
+        task::block_on,
+    },
     io::{self, Write},
     nvs::EspDefaultNvsPartition,
     ota::EspOta,
@@ -342,7 +348,7 @@ async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
             leds.set_color(colors.spark, block).await;
         }
 
-        leds.swap().await;
+        // leds.swap().await;
 
         Timer::after_millis(1000).await;
     }
@@ -406,6 +412,116 @@ fn main() {
 
     info!("SNTP initialized");
 
+    let low_driver = LedcTimerDriver::new(
+        peripherals.ledc.timer0,
+        &TimerConfig::default().resolution(esp_idf_svc::hal::ledc::Resolution::Bits8),
+    )
+    .expect("timer driver");
+
+    let high_driver = LedcTimerDriver::new(
+        peripherals.hledc.timer0,
+        &TimerConfig::default().resolution(esp_idf_svc::hal::ledc::Resolution::Bits8),
+    )
+    .expect("high speed timer driver");
+
+    let leds = [
+        LedcDriver::new(
+            peripherals.ledc.channel0,
+            &low_driver,
+            peripherals.pins.gpio23,
+        )
+        .unwrap(),
+        LedcDriver::new(
+            peripherals.ledc.channel1,
+            &low_driver,
+            peripherals.pins.gpio22,
+        )
+        .unwrap(),
+        LedcDriver::new(
+            peripherals.ledc.channel2,
+            &low_driver,
+            peripherals.pins.gpio21,
+        )
+        .unwrap(),
+        LedcDriver::new(
+            peripherals.ledc.channel3,
+            &low_driver,
+            peripherals.pins.gpio19,
+        )
+        .unwrap(),
+        LedcDriver::new(
+            peripherals.ledc.channel4,
+            &low_driver,
+            peripherals.pins.gpio18,
+        )
+        .unwrap(),
+        LedcDriver::new(
+            peripherals.ledc.channel5,
+            &low_driver,
+            peripherals.pins.gpio5,
+        )
+        .unwrap(),
+        LedcDriver::new(
+            peripherals.ledc.channel6,
+            &low_driver,
+            peripherals.pins.gpio17,
+        )
+        .unwrap(),
+        LedcDriver::new(
+            peripherals.ledc.channel7,
+            &low_driver,
+            peripherals.pins.gpio16,
+        )
+        .unwrap(),
+        // High speed
+        LedcDriver::new(
+            peripherals.hledc.channel0,
+            &high_driver,
+            peripherals.pins.gpio4,
+        )
+        .unwrap(),
+        LedcDriver::new(
+            peripherals.hledc.channel1,
+            &high_driver,
+            peripherals.pins.gpio33,
+        )
+        .unwrap(),
+        LedcDriver::new(
+            peripherals.hledc.channel2,
+            &high_driver,
+            peripherals.pins.gpio25,
+        )
+        .unwrap(),
+        LedcDriver::new(
+            peripherals.hledc.channel3,
+            &high_driver,
+            peripherals.pins.gpio26,
+        )
+        .unwrap(),
+        LedcDriver::new(
+            peripherals.hledc.channel4,
+            &high_driver,
+            peripherals.pins.gpio12,
+        )
+        .unwrap(),
+        LedcDriver::new(
+            peripherals.hledc.channel5,
+            &high_driver,
+            peripherals.pins.gpio14,
+        )
+        .unwrap(),
+        LedcDriver::new(
+            peripherals.hledc.channel6,
+            &high_driver,
+            peripherals.pins.gpio27,
+        )
+        .unwrap(),
+    ];
+
+    // The buttonled and button switch pins are reversed from the original board schematic since pin 36 is input only (oops)
+    let button_led = PinDriver::output(peripherals.pins.gpio15);
+    let button_switch = PinDriver::input(peripherals.pins.gpio36);
+
     // let leds = [
     //     PinDriver::output(peripherals.pins.gpio1.downgrade_output()).unwrap(),
     //     PinDriver::output(peripherals.pins.gpio2.downgrade_output()).unwrap(),
@@ -451,7 +567,7 @@ fn main() {
     //     .unwrap();
     // }
 
-    let (tx, _rx) = channel();
+    // let (tx, _rx) = channel();
 
     // let config = TWDTConfig {
     //     duration: Duration::from_secs(2),
@@ -492,7 +608,7 @@ fn main() {
     //     leds_software_pwm(leds, watchdog, rx);
     // });
 
-    let leds = Leds::create(tx);
+    let leds = Leds::create(leds);
 
     // static EXECUTOR_CORE_0: StaticCell<Executor> = StaticCell::new();
     // let executor_core0 = Executor::new();

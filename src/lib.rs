@@ -6,6 +6,7 @@ use esp_idf_svc::{
     hal::{
         gpio::{AnyOutputPin, Output, PinDriver},
         interrupt::free,
+        ledc::LedcDriver,
         task::watchdog::WatchdogSubscription,
     },
     sys::EspError,
@@ -20,9 +21,7 @@ use std::{
 };
 
 pub struct Leds {
-    pub buffer: [u8; 15],
-    _sender: Sender<[u8; 15]>,
-    b_safe: bool,
+    channels: [LedcDriver<'static>; 15],
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -62,99 +61,24 @@ const GAMMA_LUT: [u8; 256] = [
     249, 251, 253, 255,
 ];
 
-static _PWM_CONTROL: Channel<CriticalSectionRawMutex, [u8; 15], 1> = Channel::new();
-
 impl Leds {
-    pub fn create(sender: Sender<[u8; 15]>) -> Leds {
-        Leds {
-            buffer: [0; 15],
-            _sender: sender,
-            b_safe: true,
-        }
+    pub fn create(channels: [LedcDriver<'static>; 15]) -> Leds {
+        Leds { channels }
     }
 
     pub async fn set_color(&mut self, color: palette::Srgb<u8>, block: Block) {
         let r = block.channel_for_color(Color::Red);
-        self.buffer[r] = GAMMA_LUT[color.red as usize];
+        self.channels[r].set_duty(color.red as u32);
 
         let g = block.channel_for_color(Color::Green);
-        self.buffer[g] = GAMMA_LUT[color.green as usize];
+        self.channels[g].set_duty(color.green as u32);
 
         let b = block.channel_for_color(Color::Blue);
-        self.buffer[b] = GAMMA_LUT[color.blue as usize];
-    }
-
-    pub async fn swap(&mut self) {
-        // self.sender.send(self.buffer).unwrap();
-        unsafe {
-            if self.b_safe {
-                A_BUF = self.buffer;
-            } else {
-                B_BUF = self.buffer;
-            }
-
-            self.b_safe = !FLAG.fetch_not(std::sync::atomic::Ordering::Relaxed);
-        }
-        // PWM_CONTROL.send(self.buffer).await;
+        self.channels[b].set_duty(color.blue as u32);
     }
 }
 
-pub static FLAG: AtomicBool = AtomicBool::new(true);
-pub static mut A_BUF: [u8; 15] = [0; 15];
-pub static mut B_BUF: [u8; 15] = [0; 15];
-
-// #[embassy_executor::task]
-pub fn leds_software_pwm(
-    mut led_pins: [PinDriver<'static, AnyOutputPin, Output>; 15],
-    mut wd: WatchdogSubscription<'_>,
-    _rx: Receiver<[u8; 15]>,
-) {
-    let mut timer_value: u8 = 0;
-    let mut last_buffer = [0_u8; 15];
-
-    // Update at 120hz
-    // let mut ticker = Ticker::every(Duration::from_hz(256 * 200));
-
-    // let pwm_receiver = PWM_CONTROL.receiver();
-
-    loop {
-        // if last_buffer[0] == 0 {
-        //     last_buffer = pwm_receiver.try_receive().unwrap_or(last_buffer);
-        // }
-        // if let Ok(buf) = rx.try_recv() {
-        //     last_buffer = buf;
-        // }
-
-        // last_buffer = rx.try_recv().unwrap_or(last_buffer);
-        free(|| {
-            last_buffer = unsafe {
-                if FLAG.fetch_and(true, std::sync::atomic::Ordering::Relaxed) {
-                    B_BUF
-                } else {
-                    A_BUF
-                }
-            };
-            // let guard = unsafe { critical_section::acquire() };
-
-            for n in 0..15 {
-                if timer_value == 0 {
-                    led_pins[n].set_high().unwrap();
-                }
-
-                if last_buffer[n] == timer_value {
-                    led_pins[n].set_low().unwrap();
-                }
-            }
-
-            timer_value += 1;
-        });
-        wd.feed().unwrap();
-        // unsafe { critical_section::release(guard) };
-
-        // ticker.next().await;
-    }
-}
-
+/// Allows for an async version of the TLS socket
 pub struct EspTlsSocket(Option<async_io::Async<TcpStream>>);
 
 impl EspTlsSocket {
