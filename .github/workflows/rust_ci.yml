@@ -43,9 +43,10 @@ jobs:
 
       - name: Create .env file with Wi-Fi credentials
         run: |
-          echo "WIFI_SSID=${{ secrets.WIFI_SSID }}" >> .env
-          echo "WIFI_USERNAME=${{ secrets.WIFI_USERNAME }}" >> .env
-          echo "WIFI_PASSWORD=${{ secrets.WIFI_PASSWORD }}" >> .env
+          echo "WIFI_SSID=\"${{ secrets.WIFI_SSID }}\"" >> .env
+          echo "WIFI_USERNAME=\"${{ secrets.WIFI_USERNAME }}\"" >> .env
+          echo "WIFI_PASSWORD=\"${{ secrets.WIFI_PASSWORD }}\"" >> .env
+          echo "WIFI_EMAIL=\"${{ secrets.WIFI_EMAIL }}\"" >> .env
 
       - name: Run command
         run: cargo ${{ matrix.action.command }} ${{ matrix.action.args }}
