@@ -662,8 +662,8 @@ async fn connect_to_network(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::R
         use esp_idf_svc::sys::*;
         anyesp!(esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA))?;
         anyesp!(esp_eap_client_set_identity(
-            dotenv!("WIFI_USERNAME").as_ptr(),
-            dotenv!("WIFI_USERNAME").len() as i32
+            dotenv!("WIFI_EMAIL").as_ptr(),
+            dotenv!("WIFI_EMAIL").len() as i32
         ))?;
         anyesp!(esp_eap_client_set_username(
             dotenv!("WIFI_USERNAME").as_ptr(),
