@@ -1,6 +1,9 @@
 # Sign Firmware
 This is the firmware for the Sign. It features Lightning Time and self-updating firmware.
 
+## Important
+- There are credetials stored in the GitHub action secrets that need to be updated whenever the `.env` file is updated.
+
 ## Caveats and Workarounds
 Reference the [ESP to Pico repo](https://github.com/purduehackers/EspToPico) for more details into hardware problems.
 
