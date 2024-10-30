@@ -117,7 +117,7 @@ impl EspTlsSocket {
 
     fn release(&mut self) -> Result<(), esp_idf_svc::sys::EspError> {
         let socket = self.0.take().unwrap();
-        socket.into_inner().unwrap().into_raw_fd();
+        let _ = socket.into_inner().unwrap().into_raw_fd();
 
         Ok(())
     }
