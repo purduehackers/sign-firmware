@@ -1,9 +1,7 @@
 #![feature(type_alias_impl_trait)]
 
-use anyhow::anyhow;
 use build_time::build_time_utc;
 use chrono_tz::US::Eastern;
-use dotenvy_macro::dotenv;
 use embassy_time::Timer;
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
@@ -17,7 +15,6 @@ use esp_idf_svc::{
     nvs::EspDefaultNvsPartition,
     ota::EspOta,
     sntp,
-    sys::EspError,
     timer::EspTaskTimerService,
     wifi::{AsyncWifi, EspWifi},
 };
