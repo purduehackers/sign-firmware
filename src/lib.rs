@@ -1,9 +1,27 @@
 // pub mod eeprom;
 // pub mod schema;
+pub mod net;
 
+use anyhow::anyhow;
 use esp_idf_svc::{hal::ledc::LedcDriver, sys::EspError};
 use std::net::TcpStream;
 use std::os::fd::{AsRawFd, IntoRawFd};
+
+#[macro_export]
+macro_rules! anyesp {
+    ($err: expr) => {{
+        let res = $err;
+        if res != ::esp_idf_svc::sys::ESP_OK {
+            Err(::anyhow::anyhow!("Bad exit code {res}"))
+        } else {
+            Ok(())
+        }
+    }};
+}
+
+pub fn convert_error(e: EspError) -> anyhow::Error {
+    anyhow!("Bad exit code {e}")
+}
 
 pub struct Leds {
     channels: [LedcDriver<'static>; 15],
