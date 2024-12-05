@@ -72,7 +72,7 @@ pub async fn post_event(event: PrinterEvent) -> anyhow::Result<()> {
     let request = Request::builder()
         .method("POST")
         .header("User-Agent", "PHSign/1.0.0")
-        .header("Host", "purduehackers.com")
+        .header("Content-Type", "application/json")
         .uri(url)
         .body(serde_json::to_string(&event.message())?)
         .unwrap();
