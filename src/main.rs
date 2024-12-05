@@ -23,10 +23,14 @@ use log::info;
 use palette::rgb::Rgb;
 use sign_firmware::{
     net::{connect_to_network, self_update},
-    Block, Leds,
+    printer, Block, Leds,
 };
 
 extern crate alloc;
+
+fn midnight(time: &LightningTime) -> bool {
+    time.bolts == 0 && time.zaps == 0 && time.sparks == 0 && time.charges == 0
+}
 
 async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
     // Red before wifi
@@ -42,10 +46,28 @@ async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
     // Check for update
     self_update(&mut leds).await.expect("Self-update to work");
 
+    let mut last_time =
+        LightningTime::from(chrono::offset::Local::now().with_timezone(&Eastern).time());
     loop {
-        let colors =
-            LightningTime::from(chrono::offset::Local::now().with_timezone(&Eastern).time())
-                .colors();
+        let time = LightningTime::from(chrono::offset::Local::now().with_timezone(&Eastern).time());
+
+        if midnight(&time) && !midnight(&last_time) {
+            if let Err(e) = printer::post_event(printer::PrinterEvent::Zero).await {
+                log::error!("ZERO: Printer error: {e}");
+            }
+        } else if time.bolts != last_time.bolts {
+            if let Err(e) = printer::post_event(printer::PrinterEvent::NewBolt(time.bolts)).await {
+                log::error!("BOLT: Printer error: {e}");
+            }
+        } else if time.zaps != last_time.zaps {
+            if let Err(e) = printer::post_event(printer::PrinterEvent::NewZap(time.zaps)).await {
+                log::error!("ZAP: Printer error: {e}");
+            }
+        }
+
+        last_time = time;
+
+        let colors = time.colors();
 
         leds.set_color(colors.bolt, Block::BottomLeft);
 
