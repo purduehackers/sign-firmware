@@ -1,6 +1,7 @@
 // pub mod eeprom;
 // pub mod schema;
 pub mod net;
+pub mod printer;
 
 use anyhow::anyhow;
 use esp_idf_svc::{hal::ledc::LedcDriver, sys::EspError};
