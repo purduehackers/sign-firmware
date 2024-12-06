@@ -77,7 +77,7 @@ pub async fn post_event(event: PrinterEvent) -> anyhow::Result<()> {
         .body(serde_json::to_string(&event.message())?)
         .unwrap();
 
-    let request_text = create_raw_request(request);
+    let request_text = create_raw_request(&request);
 
     tls.write_all(request_text.as_bytes())
         .await
