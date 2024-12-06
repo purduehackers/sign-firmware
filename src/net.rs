@@ -288,7 +288,6 @@ pub async fn self_update(leds: &mut Leds) -> anyhow::Result<()> {
 pub async fn connect_to_network(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<()> {
     let config = Configuration::Client(ClientConfiguration {
         ssid: dotenv!("WIFI_SSID").try_into().unwrap(),
-        password: "".try_into().unwrap(),
         password: dotenv!("WIFI_PASSWORD").try_into().unwrap(),
         auth_method: esp_idf_svc::wifi::AuthMethod::WPA2Personal,
         ..Default::default()
