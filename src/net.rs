@@ -47,7 +47,7 @@ pub async fn generate_tls(url: &str) -> anyhow::Result<EspAsyncTls<EspTlsSocket>
     Ok(tls)
 }
 
-pub fn create_raw_request<T>(request: http::Request<T>) -> String {
+pub fn create_raw_request_no_body<T>(request: &http::Request<T>) -> String {
     let method = request.method();
     let uri = request.uri();
     let headers = request.headers();
@@ -61,6 +61,14 @@ pub fn create_raw_request<T>(request: http::Request<T>) -> String {
     request_text
 }
 
+pub fn create_raw_request<T: ToString>(request: &http::Request<T>) -> String {
+    let mut text = create_raw_request_no_body(request);
+
+    text.push_str(&request.body().to_string());
+
+    text
+}
+
 pub async fn handle_redirect(url: &str) -> anyhow::Result<EspAsyncTls<EspTlsSocket>> {
     let request = Request::builder()
         .method("GET")
@@ -72,7 +80,7 @@ pub async fn handle_redirect(url: &str) -> anyhow::Result<EspAsyncTls<EspTlsSock
 
     let mut tls = generate_tls(url).await?;
 
-    let request_text = create_raw_request(request);
+    let request_text = create_raw_request_no_body(&request);
 
     tls.write_all(request_text.as_bytes())
         .await
@@ -102,7 +110,7 @@ pub async fn handle_redirect(url: &str) -> anyhow::Result<EspAsyncTls<EspTlsSock
                 .unwrap();
 
             let tls = generate_tls(location).await?;
-            let request_text = create_raw_request(request);
+            let request_text = create_raw_request_no_body(&request);
 
             tls.write_all(request_text.as_bytes())
                 .await
@@ -131,7 +139,7 @@ pub async fn self_update(leds: &mut Leds) -> anyhow::Result<()> {
 
         let mut tls = generate_tls(url).await?;
 
-        let request_text = create_raw_request(request);
+        let request_text = create_raw_request_no_body(&request);
 
         tls.write_all(request_text.as_bytes())
             .await
