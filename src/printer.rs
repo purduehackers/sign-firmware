@@ -1,3 +1,4 @@
+use esp_idf_svc::io::asynch::Write;
 use http::Request;
 
 use crate::{
@@ -73,6 +74,7 @@ pub async fn post_event(event: PrinterEvent) -> anyhow::Result<()> {
         .method("POST")
         .header("User-Agent", "PHSign/1.0.0")
         .header("Content-Type", "application/json")
+        .header("Host", "api.purduehackers.com")
         .uri(url)
         .body(serde_json::to_string(&event.message())?)
         .unwrap();
@@ -82,6 +84,8 @@ pub async fn post_event(event: PrinterEvent) -> anyhow::Result<()> {
     tls.write_all(request_text.as_bytes())
         .await
         .map_err(convert_error)?;
+
+    tls.flush().await?;
 
     Ok(())
 }
