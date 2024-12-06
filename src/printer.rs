@@ -68,7 +68,7 @@ impl PrinterEvent {
 
 pub async fn post_event(event: PrinterEvent) -> anyhow::Result<()> {
     let url = "https://api.purduehackers.com/printer/print";
-    let tls = generate_tls(url).await?;
+    let mut tls = generate_tls(url).await?;
 
     let request = Request::builder()
         .method("POST")
