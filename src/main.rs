@@ -63,12 +63,6 @@ async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
             if let Err(e) = printer::post_event(printer::PrinterEvent::NewZap(time.zaps)).await {
                 log::error!("ZAP: Printer error: {e}");
             }
-        } else if time.sparks != last_time.sparks {
-            if let Err(e) =
-                printer::post_event(printer::PrinterEvent::NewZap(time.zaps + 200)).await
-            {
-                log::error!("SPARK: Printer error: {e}");
-            }
         }
 
         last_time = time;
