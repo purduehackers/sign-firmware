@@ -15,7 +15,8 @@ use log::info;
 use palette::rgb::Rgb;
 use url::Url;
 
-use crate::{anyesp, convert_error, EspTlsSocket, Leds};
+// use crate::{anyesp, convert_error, EspTlsSocket, Leds};
+use crate::{convert_error, EspTlsSocket, Leds};
 
 #[derive(Debug, serde::Deserialize)]
 struct GithubResponse {
