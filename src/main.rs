@@ -1,12 +1,13 @@
 #![feature(type_alias_impl_trait)]
 
 use build_time::build_time_utc;
+use chrono::{Duration, Local};
 use chrono_tz::US::Eastern;
 use embassy_time::Timer;
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     hal::{
-        gpio::PinDriver,
+        gpio::{Gpio15, Gpio36, Input, Level, Output, PinDriver},
         ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver},
         peripherals::Peripherals,
         task::block_on,
@@ -32,7 +33,12 @@ fn midnight(time: &LightningTime) -> bool {
     time.bolts == 0 && time.zaps == 0 && time.sparks == 0 && time.charges == 0
 }
 
-async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
+async fn amain(
+    mut leds: Leds,
+    mut wifi: AsyncWifi<EspWifi<'static>>,
+    button_switch: PinDriver<'static, Gpio36, Input>,
+    mut button_led: PinDriver<'static, Gpio15, Output>,
+) {
     // Red before wifi
     leds.set_all_colors(Rgb::new(255, 0, 0));
 
@@ -46,10 +52,11 @@ async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
     // Check for update
     self_update(&mut leds).await.expect("Self-update to work");
 
-    let mut last_time =
-        LightningTime::from(chrono::offset::Local::now().with_timezone(&Eastern).time());
+    let mut last_led_change = Local::now();
+    let mut button_pressed = false;
+    let mut last_time = LightningTime::from(Local::now().with_timezone(&Eastern).time());
     loop {
-        let time = LightningTime::from(chrono::offset::Local::now().with_timezone(&Eastern).time());
+        let time = LightningTime::from(Local::now().with_timezone(&Eastern).time());
 
         if midnight(&time) && !midnight(&last_time) {
             if let Err(e) = printer::post_event(printer::PrinterEvent::Zero).await {
@@ -63,6 +70,24 @@ async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
             if let Err(e) = printer::post_event(printer::PrinterEvent::NewZap(time.zaps)).await {
                 log::error!("ZAP: Printer error: {e}");
             }
+        }
+
+        match (button_switch.get_level(), button_pressed) {
+            (Level::High, false) => {
+                if let Err(e) = printer::post_event(printer::PrinterEvent::ButtonPressed).await {
+                    log::error!("BUTTON PRESSED: Printer error: {e}");
+                }
+                button_pressed = true;
+            }
+            (Level::Low, true) => {
+                button_pressed = false;
+            }
+            _ => {}
+        }
+
+        if Local::now() - last_led_change > Duration::seconds(1) {
+            button_led.toggle().unwrap();
+            last_led_change = Local::now();
         }
 
         last_time = time;
@@ -79,7 +104,7 @@ async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
             leds.set_color(colors.spark, block);
         }
 
-        Timer::after_millis(1000).await;
+        Timer::after_millis(10).await;
     }
 }
 
@@ -229,8 +254,8 @@ fn main() {
     ];
 
     // The buttonled and button switch pins are reversed from the original board schematic since pin 36 is input only (oops)
-    let _button_led = PinDriver::output(peripherals.pins.gpio15);
-    let _button_switch = PinDriver::input(peripherals.pins.gpio36);
+    let button_led = PinDriver::output(peripherals.pins.gpio15).unwrap();
+    let button_switch = PinDriver::input(peripherals.pins.gpio36).unwrap();
 
     let leds = Leds::create(leds);
 
@@ -238,7 +263,7 @@ fn main() {
         .stack_size(60_000)
         .spawn(|| {
             io::vfs::initialize_eventfd(5).unwrap();
-            block_on(amain(leds, wifi))
+            block_on(amain(leds, wifi, button_switch, button_led))
         })
         .unwrap()
         .join()
