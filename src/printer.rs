@@ -41,6 +41,7 @@ pub enum PrinterEvent {
     NewBolt(u8),
     NewZap(u8),
     Zero,
+    ButtonPressed,
 }
 
 impl PrinterEvent {
@@ -60,6 +61,12 @@ impl PrinterEvent {
                 PrinterInstruction::Text(format!(
                     "Did you just lick a 9V battery? It is now zap {z}"
                 )),
+                PrinterInstruction::PrintCut,
+            ],
+            PrinterEvent::ButtonPressed => vec![
+                PrinterInstruction::Justify(JustifyMode::Center),
+                PrinterInstruction::Bold(true),
+                PrinterInstruction::Text("SOMEONE JUST PRESSED THE SECRET BUTTON!".to_string()),
                 PrinterInstruction::PrintCut,
             ],
         }

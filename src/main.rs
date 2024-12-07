@@ -6,7 +6,7 @@ use embassy_time::Timer;
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     hal::{
-        gpio::PinDriver,
+        gpio::{Level, PinDriver},
         ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver},
         peripherals::Peripherals,
         task::block_on,
@@ -46,6 +46,10 @@ async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
     // Check for update
     self_update(&mut leds).await.expect("Self-update to work");
 
+    // The buttonled and button switch pins are reversed from the original board schematic since pin 36 is input only (oops)
+    let _button_led = PinDriver::output(peripherals.pins.gpio15).unwrap();
+    let button_switch = PinDriver::input(peripherals.pins.gpio36).unwrap();
+
     let mut last_time =
         LightningTime::from(chrono::offset::Local::now().with_timezone(&Eastern).time());
     loop {
@@ -62,6 +66,11 @@ async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
         } else if time.zaps != last_time.zaps {
             if let Err(e) = printer::post_event(printer::PrinterEvent::NewZap(time.zaps)).await {
                 log::error!("ZAP: Printer error: {e}");
+            }
+        }
+        if matches(button_switch.get_level(), Level::High) {
+            if let Err(e) = printer::post_event(printer::PrinterEvent::ButtonPressed).await {
+                log::error!("BUTTON PRESSED: Printer error: {e}");
             }
         }
 
@@ -227,10 +236,6 @@ fn main() {
         )
         .unwrap(),
     ];
-
-    // The buttonled and button switch pins are reversed from the original board schematic since pin 36 is input only (oops)
-    let _button_led = PinDriver::output(peripherals.pins.gpio15);
-    let _button_switch = PinDriver::input(peripherals.pins.gpio36);
 
     let leds = Leds::create(leds);
 
