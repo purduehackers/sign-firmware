@@ -46,6 +46,8 @@ async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
     // Check for update
     self_update(&mut leds).await.expect("Self-update to work");
 
+    let peripherals = Peripherals::take().unwrap();
+
     // The buttonled and button switch pins are reversed from the original board schematic since pin 36 is input only (oops)
     let _button_led = PinDriver::output(peripherals.pins.gpio15).unwrap();
     let button_switch = PinDriver::input(peripherals.pins.gpio36).unwrap();
@@ -68,7 +70,7 @@ async fn amain(mut leds: Leds, mut wifi: AsyncWifi<EspWifi<'static>>) {
                 log::error!("ZAP: Printer error: {e}");
             }
         }
-        if matches(button_switch.get_level(), Level::High) {
+        if matches!(button_switch.get_level(), Level::High) {
             if let Err(e) = printer::post_event(printer::PrinterEvent::ButtonPressed).await {
                 log::error!("BUTTON PRESSED: Printer error: {e}");
             }
