@@ -54,12 +54,12 @@ impl PrinterEvent {
                 PrinterInstruction::PrintCut,
             ],
             PrinterEvent::NewBolt(b) => vec![
-                PrinterInstruction::Text(format!("Lightning strikes! It is now bolt {b}")),
+                PrinterInstruction::Text(format!("Lightning strikes! It is now bolt {b:x}")),
                 PrinterInstruction::PrintCut,
             ],
             PrinterEvent::NewZap(z) => vec![
                 PrinterInstruction::Text(format!(
-                    "Did you just lick a 9V battery? It is now zap {z}"
+                    "Did you just lick a 9V battery? It is now zap {z:x}"
                 )),
                 PrinterInstruction::PrintCut,
             ],
