@@ -62,7 +62,7 @@ jobs:
       # Upload the converted binary as an artifact
       - name: Upload release binary artifact
         if: matrix.action.command == 'build'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: sign-firmware-binary
           path: sign-firmware.bin
@@ -132,7 +132,7 @@ jobs:
 
       - name: Download release binary artifact
         if: env.new_version == 'true'
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: sign-firmware-binary
           path: ./release
