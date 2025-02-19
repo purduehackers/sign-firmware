@@ -17,6 +17,8 @@ use url::Url;
 
 use crate::{anyesp, convert_error, EspTlsSocket, Leds};
 
+const IS_INTERACTIVE: bool = cfg!(feature = "interactive");
+
 #[derive(Debug, serde::Deserialize)]
 struct GithubResponse {
     tag_name: String,

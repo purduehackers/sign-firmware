@@ -31,15 +31,13 @@ use sign_firmware::printer;
 
 extern crate alloc;
 
-fn midnight(time: &LightningTime) -> bool {
-    time.bolts == 0 && time.zaps == 0 && time.sparks == 0 && time.charges == 0
-}
-
 async fn amain(
     mut leds: Leds,
     mut wifi: AsyncWifi<EspWifi<'static>>,
+    #[allow(unused_variables)]
     button_switch: PinDriver<'static, Gpio36, Input>,
-    mut button_led: PinDriver<'static, Gpio15, Output>,
+    #[allow(unused_variables)]
+    button_led: PinDriver<'static, Gpio15, Output>,
 ) {
     // Red before wifi
     leds.set_all_colors(Rgb::new(255, 0, 0));
@@ -83,6 +81,10 @@ async fn interactive(
     button_switch: &PinDriver<'static, Gpio36, Input>,
     time: LightningTime,
 ) {
+    fn midnight(time: &LightningTime) -> bool {
+        time.bolts == 0 && time.zaps == 0 && time.sparks == 0 && time.charges == 0
+    }
+
     if midnight(&time) && !midnight(&last_time) {
         if let Err(e) = printer::post_event(printer::PrinterEvent::Zero).await {
             log::error!("ZERO: Printer error: {e}");
