@@ -19,13 +19,15 @@ use esp_idf_svc::{
     timer::EspTaskTimerService,
     wifi::{AsyncWifi, EspWifi},
 };
-use lightning_time::LightningTime;
+use lightning_time::{LightningTime, LightningTimeColors};
 use log::info;
 use palette::rgb::Rgb;
 use sign_firmware::{
     net::{connect_to_network, self_update},
-    printer, Block, Leds,
+    Block, Leds,
 };
+#[cfg(feature = "interactive")]
+use sign_firmware::printer;
 
 extern crate alloc;
 
@@ -52,59 +54,86 @@ async fn amain(
     // Check for update
     self_update(&mut leds).await.expect("Self-update to work");
 
-    let mut last_led_change = Local::now();
-    let mut button_pressed = false;
-    let mut last_time = LightningTime::from(Local::now().with_timezone(&Eastern).time());
+    #[cfg(feature = "interactive")]
+    let mut interactive_state = InteractiveState {
+        last_led_change: Local::now(),
+        last_time: LightningTime::from(Local::now().with_timezone(&Eastern).time()),
+        button_pressed: false,
+    };
     loop {
         let time = LightningTime::from(Local::now().with_timezone(&Eastern).time());
 
-        if midnight(&time) && !midnight(&last_time) {
-            if let Err(e) = printer::post_event(printer::PrinterEvent::Zero).await {
-                log::error!("ZERO: Printer error: {e}");
-            }
-        } else if time.bolts != last_time.bolts {
-            if let Err(e) = printer::post_event(printer::PrinterEvent::NewBolt(time.bolts)).await {
-                log::error!("BOLT: Printer error: {e}");
-            }
-        } else if time.zaps != last_time.zaps {
-            if let Err(e) = printer::post_event(printer::PrinterEvent::NewZap(time.zaps)).await {
-                log::error!("ZAP: Printer error: {e}");
-            }
-        }
+        #[cfg(feature = "interactive")]
+        interactive(&mut interactive_state, &mut button_led, &button_switch, time).await;
 
-        match (button_switch.get_level(), button_pressed) {
-            (Level::High, false) => {
-                if let Err(e) = printer::post_event(printer::PrinterEvent::ButtonPressed).await {
-                    log::error!("BUTTON PRESSED: Printer error: {e}");
-                }
-                button_pressed = true;
-            }
-            (Level::Low, true) => {
-                button_pressed = false;
-            }
-            _ => {}
-        }
-
-        if Local::now() - last_led_change > Duration::seconds(1) {
-            button_led.toggle().unwrap();
-            last_led_change = Local::now();
-        }
-
-        last_time = time;
-
-        let colors = time.colors();
-
-        leds.set_color(colors.bolt, Block::BottomLeft);
-
-        for block in [Block::Top, Block::Center] {
-            leds.set_color(colors.zap, block);
-        }
-
-        for block in [Block::Right, Block::BottomRight] {
-            leds.set_color(colors.spark, block);
-        }
+        set_colors(&time.colors(), &mut leds);
 
         Timer::after_millis(10).await;
+    }
+}
+
+#[cfg(feature = "interactive")]
+async fn interactive(
+    InteractiveState {
+        last_led_change,
+        last_time,
+        button_pressed,
+    }: &mut InteractiveState,
+    button_led: &mut PinDriver<'static, Gpio15, Output>,
+    button_switch: &PinDriver<'static, Gpio36, Input>,
+    time: LightningTime,
+) {
+    if midnight(&time) && !midnight(&last_time) {
+        if let Err(e) = printer::post_event(printer::PrinterEvent::Zero).await {
+            log::error!("ZERO: Printer error: {e}");
+        }
+    } else if time.bolts != last_time.bolts {
+        if let Err(e) = printer::post_event(printer::PrinterEvent::NewBolt(time.bolts)).await {
+            log::error!("BOLT: Printer error: {e}");
+        }
+    } else if time.zaps != last_time.zaps {
+        if let Err(e) = printer::post_event(printer::PrinterEvent::NewZap(time.zaps)).await {
+            log::error!("ZAP: Printer error: {e}");
+        }
+    }
+
+    match (button_switch.get_level(), *button_pressed) {
+        (Level::High, false) => {
+            if let Err(e) = printer::post_event(printer::PrinterEvent::ButtonPressed).await {
+                log::error!("BUTTON PRESSED: Printer error: {e}");
+            }
+            *button_pressed = true;
+        }
+        (Level::Low, true) => {
+            *button_pressed = false;
+        }
+        _ => {}
+    }
+
+    if Local::now() - *last_led_change > Duration::seconds(1) {
+        button_led.toggle().unwrap();
+        *last_led_change = Local::now();
+    }
+
+    *last_time = time;
+}
+
+#[cfg(feature = "interactive")]
+struct InteractiveState {
+    last_led_change: chrono::DateTime<Local>,
+    last_time: LightningTime,
+    button_pressed: bool,
+}
+
+fn set_colors(colors: &LightningTimeColors, leds: &mut Leds) {
+    leds.set_color(colors.bolt, Block::BottomLeft);
+
+    for block in [Block::Top, Block::Center] {
+        leds.set_color(colors.zap, block);
+    }
+
+    for block in [Block::Right, Block::BottomRight] {
+        leds.set_color(colors.spark, block);
     }
 }
 

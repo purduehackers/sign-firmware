@@ -8,6 +8,9 @@ license = "MIT OR Apache-2.0"
 [package.metadata.espflash]
 partition_table = "partitions.csv"
 
+[features]
+interactive = []
+
 [[bin]]
 name = "sign-firmware"
 harness = false
