@@ -91,11 +91,11 @@ mod interactive {
         button_switch: &PinDriver<'static, Gpio36, Input>,
         time: LightningTime,
     ) {
-        fn midnight(time: LightningTime) -> bool {
+        fn midnight(time: &LightningTime) -> bool {
             time.bolts == 0 && time.zaps == 0 && time.sparks == 0 && time.charges == 0
         }
 
-        if midnight(time) && !midnight(last_time) {
+        if midnight(&time) && !midnight(last_time) {
             if let Err(e) = printer::post_event(printer::PrinterEvent::Zero).await {
                 log::error!("ZERO: Printer error: {e}");
             }
