@@ -1,13 +1,13 @@
 #![feature(type_alias_impl_trait)]
 
 use build_time::build_time_utc;
-use chrono::{Duration, Local};
+use chrono::Local;
 use chrono_tz::US::Eastern;
 use embassy_time::Timer;
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     hal::{
-        gpio::{Gpio15, Gpio36, Input, Level, Output, PinDriver},
+        gpio::{Gpio15, Gpio36, Input, Output, PinDriver},
         ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver},
         peripherals::Peripherals,
         task::block_on,
@@ -26,18 +26,16 @@ use sign_firmware::{
     net::{connect_to_network, self_update},
     Block, Leds,
 };
-#[cfg(feature = "interactive")]
-use sign_firmware::printer;
 
 extern crate alloc;
 
 async fn amain(
     mut leds: Leds,
     mut wifi: AsyncWifi<EspWifi<'static>>,
+    #[allow(unused_variables)] button_switch: PinDriver<'static, Gpio36, Input>,
     #[allow(unused_variables)]
-    button_switch: PinDriver<'static, Gpio36, Input>,
-    #[allow(unused_variables)]
-    button_led: PinDriver<'static, Gpio15, Output>,
+    #[allow(unused_mut)]
+    mut button_led: PinDriver<'static, Gpio15, Output>,
 ) {
     // Red before wifi
     leds.set_all_colors(Rgb::new(255, 0, 0));
@@ -53,7 +51,7 @@ async fn amain(
     self_update(&mut leds).await.expect("Self-update to work");
 
     #[cfg(feature = "interactive")]
-    let mut interactive_state = InteractiveState {
+    let mut interactive_state = interactive::InteractiveState {
         last_led_change: Local::now(),
         last_time: LightningTime::from(Local::now().with_timezone(&Eastern).time()),
         button_pressed: false,
@@ -62,7 +60,13 @@ async fn amain(
         let time = LightningTime::from(Local::now().with_timezone(&Eastern).time());
 
         #[cfg(feature = "interactive")]
-        interactive(&mut interactive_state, &mut button_led, &button_switch, time).await;
+        interactive::interactive(
+            &mut interactive_state,
+            &mut button_led,
+            &button_switch,
+            time,
+        )
+        .await;
 
         set_colors(&time.colors(), &mut leds);
 
@@ -71,60 +75,66 @@ async fn amain(
 }
 
 #[cfg(feature = "interactive")]
-async fn interactive(
-    InteractiveState {
-        last_led_change,
-        last_time,
-        button_pressed,
-    }: &mut InteractiveState,
-    button_led: &mut PinDriver<'static, Gpio15, Output>,
-    button_switch: &PinDriver<'static, Gpio36, Input>,
-    time: LightningTime,
-) {
-    fn midnight(time: &LightningTime) -> bool {
-        time.bolts == 0 && time.zaps == 0 && time.sparks == 0 && time.charges == 0
-    }
+mod interactive {
+    use super::*;
+    use chrono::Duration;
+    use esp_idf_svc::hal::gpio::Level;
+    use sign_firmware::printer;
 
-    if midnight(&time) && !midnight(&last_time) {
-        if let Err(e) = printer::post_event(printer::PrinterEvent::Zero).await {
-            log::error!("ZERO: Printer error: {e}");
+    pub async fn interactive(
+        InteractiveState {
+            last_led_change,
+            last_time,
+            button_pressed,
+        }: &mut InteractiveState,
+        button_led: &mut PinDriver<'static, Gpio15, Output>,
+        button_switch: &PinDriver<'static, Gpio36, Input>,
+        time: LightningTime,
+    ) {
+        fn midnight(time: &LightningTime) -> bool {
+            time.bolts == 0 && time.zaps == 0 && time.sparks == 0 && time.charges == 0
         }
-    } else if time.bolts != last_time.bolts {
-        if let Err(e) = printer::post_event(printer::PrinterEvent::NewBolt(time.bolts)).await {
-            log::error!("BOLT: Printer error: {e}");
-        }
-    } else if time.zaps != last_time.zaps {
-        if let Err(e) = printer::post_event(printer::PrinterEvent::NewZap(time.zaps)).await {
-            log::error!("ZAP: Printer error: {e}");
-        }
-    }
 
-    match (button_switch.get_level(), *button_pressed) {
-        (Level::High, false) => {
-            if let Err(e) = printer::post_event(printer::PrinterEvent::ButtonPressed).await {
-                log::error!("BUTTON PRESSED: Printer error: {e}");
+        if midnight(&time) && !midnight(&last_time) {
+            if let Err(e) = printer::post_event(printer::PrinterEvent::Zero).await {
+                log::error!("ZERO: Printer error: {e}");
             }
-            *button_pressed = true;
+        } else if time.bolts != last_time.bolts {
+            if let Err(e) = printer::post_event(printer::PrinterEvent::NewBolt(time.bolts)).await {
+                log::error!("BOLT: Printer error: {e}");
+            }
+        } else if time.zaps != last_time.zaps {
+            if let Err(e) = printer::post_event(printer::PrinterEvent::NewZap(time.zaps)).await {
+                log::error!("ZAP: Printer error: {e}");
+            }
         }
-        (Level::Low, true) => {
-            *button_pressed = false;
+
+        match (button_switch.get_level(), *button_pressed) {
+            (Level::High, false) => {
+                if let Err(e) = printer::post_event(printer::PrinterEvent::ButtonPressed).await {
+                    log::error!("BUTTON PRESSED: Printer error: {e}");
+                }
+                *button_pressed = true;
+            }
+            (Level::Low, true) => {
+                *button_pressed = false;
+            }
+            _ => {}
         }
-        _ => {}
+
+        if Local::now() - *last_led_change > Duration::seconds(1) {
+            button_led.toggle().unwrap();
+            *last_led_change = Local::now();
+        }
+
+        *last_time = time;
     }
 
-    if Local::now() - *last_led_change > Duration::seconds(1) {
-        button_led.toggle().unwrap();
-        *last_led_change = Local::now();
+    pub struct InteractiveState {
+        pub last_led_change: chrono::DateTime<Local>,
+        pub last_time: LightningTime,
+        pub button_pressed: bool,
     }
-
-    *last_time = time;
-}
-
-#[cfg(feature = "interactive")]
-struct InteractiveState {
-    last_led_change: chrono::DateTime<Local>,
-    last_time: LightningTime,
-    button_pressed: bool,
 }
 
 fn set_colors(colors: &LightningTimeColors, leds: &mut Leds) {
