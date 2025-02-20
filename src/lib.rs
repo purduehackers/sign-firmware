@@ -1,6 +1,7 @@
 // pub mod eeprom;
 // pub mod schema;
 pub mod net;
+#[cfg(feature = "interactive")]
 pub mod printer;
 
 use anyhow::anyhow;

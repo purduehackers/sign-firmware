@@ -17,6 +17,8 @@ use url::Url;
 
 use crate::{anyesp, convert_error, EspTlsSocket, Leds};
 
+const IS_INTERACTIVE: bool = cfg!(feature = "interactive");
+
 #[derive(Debug, serde::Deserialize)]
 struct GithubResponse {
     tag_name: String,
@@ -26,6 +28,7 @@ struct GithubResponse {
 #[derive(Debug, serde::Deserialize)]
 struct GithubAsset {
     browser_download_url: String,
+    name: String,
 }
 
 pub async fn generate_tls(url: &str) -> anyhow::Result<EspAsyncTls<EspTlsSocket>> {
@@ -174,7 +177,15 @@ pub async fn self_update(leds: &mut Leds) -> anyhow::Result<()> {
         // Grab new release and update
         let url = manifest
             .assets
-            .first()
+            .into_iter()
+            .find(|asset| {
+                asset.name
+                    == if IS_INTERACTIVE {
+                        "sign-firmware.bin"
+                    } else {
+                        "sign-firmware-passive.bin"
+                    }
+            })
             .expect("release to contain assets")
             .browser_download_url
             .clone();
