@@ -181,9 +181,9 @@ pub async fn self_update(leds: &mut Leds) -> anyhow::Result<()> {
             .find(|asset| {
                 asset.name
                     == if IS_INTERACTIVE {
-                        "sign-firmware-interactive.bin"
-                    } else {
                         "sign-firmware.bin"
+                    } else {
+                        "sign-firmware-passive.bin"
                     }
             })
             .expect("release to contain assets")
