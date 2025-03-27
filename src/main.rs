@@ -1,7 +1,7 @@
 #![feature(type_alias_impl_trait)]
 
 use build_time::build_time_utc;
-use chrono::{Local, Datelike, Weekday, Timelike};
+use chrono::{Datelike, Local, Timelike, Weekday};
 use chrono_tz::US::Eastern;
 use embassy_time::Timer;
 use esp_idf_svc::{
@@ -68,7 +68,11 @@ async fn amain(
         set_colors(&time.colors(), &mut leds);
 
         // Weekly self-update check
-        if Local::now().weekday() == Weekday::Sat && Local::now().hour() == 3 && Local::now().minute() == 0 && Local::now().second() == 0 {
+        if Local::now().weekday() == Weekday::Sat
+            && Local::now().hour() == 3
+            && Local::now().minute() == 0
+            && Local::now().second() == 0
+        {
             self_update(&mut leds).await.expect("Self-update to work");
         }
 
