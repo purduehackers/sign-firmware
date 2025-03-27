@@ -127,6 +127,8 @@ pub async fn handle_redirect(url: &str) -> anyhow::Result<EspAsyncTls<EspTlsSock
 }
 
 pub async fn self_update(leds: &mut Leds) -> anyhow::Result<()> {
+    leds.set_all_colors(Rgb::new(0, 0, 255));
+
     info!("Checking for self-update");
 
     let manifest: GithubResponse = {

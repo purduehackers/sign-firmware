@@ -1,7 +1,7 @@
 #![feature(type_alias_impl_trait)]
 
 use build_time::build_time_utc;
-use chrono::Local;
+use chrono::{Local, Datelike, Weekday, Timelike};
 use chrono_tz::US::Eastern;
 use embassy_time::Timer;
 use esp_idf_svc::{
@@ -44,9 +44,6 @@ async fn amain(
         .await
         .expect("wifi connection");
 
-    // Blue before update
-    leds.set_all_colors(Rgb::new(0, 0, 255));
-
     // Check for update
     self_update(&mut leds).await.expect("Self-update to work");
 
@@ -69,6 +66,11 @@ async fn amain(
         .await;
 
         set_colors(&time.colors(), &mut leds);
+
+        // Weekly self-update check
+        if Local::now().weekday() == Weekday::Sat && Local::now().hour() == 3 && Local::now().minute() == 0 && Local::now().second() == 0 {
+            self_update(&mut leds).await.expect("Self-update to work");
+        }
 
         Timer::after_millis(10).await;
     }
