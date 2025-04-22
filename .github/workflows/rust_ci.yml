@@ -148,7 +148,7 @@ jobs:
           name: v${{ env.VERSION }}
           body: "Release version ${{ env.VERSION }}"
           files: |
-            release/sign-firmware/sign-firmware.bin
-            release/sign-firmware-interactive/sign-firmware-interactive.bin
+            release/sign-firmware-binary/sign-firmware.bin
+            release/sign-firmware-interactive-binary/sign-firmware-interactive.bin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
