@@ -140,9 +140,6 @@ jobs:
         with:
           path: ./release
 
-      - name: Debug artifact files
-        run: ls -R ./release
-
       - name: Create Release
         if: env.new_version == 'true'
         uses: softprops/action-gh-release@v1
@@ -151,7 +148,7 @@ jobs:
           name: v${{ env.VERSION }}
           body: "Release version ${{ env.VERSION }}"
           files: |
-            release/sign-firmware.bin
-            release/sign-firmware-interactive.bin
+            release/sign-firmware/sign-firmware.bin
+            release/sign-firmware-interactive/sign-firmware-interactive.bin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
