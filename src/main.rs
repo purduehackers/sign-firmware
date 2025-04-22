@@ -309,7 +309,7 @@ fn main() {
     std::thread::Builder::new()
         .stack_size(60_000)
         .spawn(|| {
-            io::vfs::initialize_eventfd(5).unwrap();
+            let _ = io::vfs::MountedEventfs::mount(5).unwrap();
             block_on(amain(leds, wifi, button_switch, button_led))
         })
         .unwrap()
