@@ -22,7 +22,11 @@ jobs:
       matrix:
         action:
           - command: build
+            args: --release -F interactive
+            artifact_name: sign-firmware
+          - command: build
             args: --release
+            artifact_name: sign-firmware-passive
           - command: fmt
             args: --all -- --check --color always
           - command: clippy
@@ -56,7 +60,7 @@ jobs:
         run: |
           sudo apt-get install -y libudev-dev
           cargo install espflash
-          espflash save-image --chip esp32 target/xtensa-esp32-espidf/release/sign-firmware sign-firmware.bin -T partitions.csv
+          espflash save-image --chip esp32 target/xtensa-esp32-espidf/release/sign-firmware ${{ matrix.action.artifact_name }}.bin -T partitions.csv
           ls -la # List files to verify conversion
 
       # Upload the converted binary as an artifact
@@ -64,8 +68,8 @@ jobs:
         if: matrix.action.command == 'build'
         uses: actions/upload-artifact@v4
         with:
-          name: sign-firmware-binary
-          path: sign-firmware.bin
+          name: ${{ matrix.action.artifact_name }}-binary
+          path: ${{ matrix.action.artifact_name }}.bin
           if-no-files-found: error
 
   publish:
@@ -134,7 +138,6 @@ jobs:
         if: env.new_version == 'true'
         uses: actions/download-artifact@v4
         with:
-          name: sign-firmware-binary
           path: ./release
 
       - name: Create Release
@@ -144,6 +147,8 @@ jobs:
           tag_name: v${{ env.VERSION }}
           name: v${{ env.VERSION }}
           body: "Release version ${{ env.VERSION }}"
-          files: release/sign-firmware.bin
+          files: |
+            release/sign-firmware.bin
+            release/sign-firmware-interactive.bin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

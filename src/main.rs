@@ -1,13 +1,13 @@
 #![feature(type_alias_impl_trait)]
 
 use build_time::build_time_utc;
-use chrono::{Duration, Local};
+use chrono::{Datelike, Local, Timelike, Weekday};
 use chrono_tz::US::Eastern;
 use embassy_time::Timer;
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     hal::{
-        gpio::{Gpio15, Gpio36, Input, Level, Output, PinDriver},
+        gpio::{Gpio15, Gpio36, Input, Output, PinDriver},
         ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver},
         peripherals::Peripherals,
         task::block_on,
@@ -19,24 +19,22 @@ use esp_idf_svc::{
     timer::EspTaskTimerService,
     wifi::{AsyncWifi, EspWifi},
 };
-use lightning_time::LightningTime;
+use lightning_time::{LightningTime, LightningTimeColors};
 use log::info;
 use palette::rgb::Rgb;
 use sign_firmware::{
     net::{connect_to_network, self_update},
-    printer, Block, Leds,
+    Block, Leds,
 };
 
 extern crate alloc;
 
-fn midnight(time: &LightningTime) -> bool {
-    time.bolts == 0 && time.zaps == 0 && time.sparks == 0 && time.charges == 0
-}
-
 async fn amain(
     mut leds: Leds,
     mut wifi: AsyncWifi<EspWifi<'static>>,
-    button_switch: PinDriver<'static, Gpio36, Input>,
+    #[allow(unused_variables)] button_switch: PinDriver<'static, Gpio36, Input>,
+    #[allow(unused_variables)]
+    #[allow(unused_mut)]
     mut button_led: PinDriver<'static, Gpio15, Output>,
 ) {
     // Red before wifi
@@ -46,19 +44,64 @@ async fn amain(
         .await
         .expect("wifi connection");
 
-    // Blue before update
-    leds.set_all_colors(Rgb::new(0, 0, 255));
-
     // Check for update
     self_update(&mut leds).await.expect("Self-update to work");
 
-    let mut last_led_change = Local::now();
-    let mut button_pressed = false;
-    let mut last_time = LightningTime::from(Local::now().with_timezone(&Eastern).time());
+    #[cfg(feature = "interactive")]
+    let mut interactive_state = interactive::InteractiveState {
+        last_led_change: Local::now(),
+        last_time: LightningTime::from(Local::now().with_timezone(&Eastern).time()),
+        button_pressed: false,
+    };
     loop {
         let time = LightningTime::from(Local::now().with_timezone(&Eastern).time());
 
-        if midnight(&time) && !midnight(&last_time) {
+        #[cfg(feature = "interactive")]
+        interactive::interactive(
+            &mut interactive_state,
+            &mut button_led,
+            &button_switch,
+            time,
+        )
+        .await;
+
+        set_colors(&time.colors(), &mut leds);
+
+        // Weekly self-update check
+        if Local::now().weekday() == Weekday::Sat
+            && Local::now().hour() == 3
+            && Local::now().minute() == 0
+            && Local::now().second() == 0
+        {
+            self_update(&mut leds).await.expect("Self-update to work");
+        }
+
+        Timer::after_millis(10).await;
+    }
+}
+
+#[cfg(feature = "interactive")]
+mod interactive {
+    use super::*;
+    use chrono::Duration;
+    use esp_idf_svc::hal::gpio::Level;
+    use sign_firmware::printer;
+
+    pub async fn interactive(
+        InteractiveState {
+            last_led_change,
+            last_time,
+            button_pressed,
+        }: &mut InteractiveState,
+        button_led: &mut PinDriver<'static, Gpio15, Output>,
+        button_switch: &PinDriver<'static, Gpio36, Input>,
+        time: LightningTime,
+    ) {
+        fn midnight(time: &LightningTime) -> bool {
+            time.bolts == 0 && time.zaps == 0 && time.sparks == 0 && time.charges == 0
+        }
+
+        if midnight(&time) && !midnight(last_time) {
             if let Err(e) = printer::post_event(printer::PrinterEvent::Zero).await {
                 log::error!("ZERO: Printer error: {e}");
             }
@@ -72,39 +115,43 @@ async fn amain(
             }
         }
 
-        match (button_switch.get_level(), button_pressed) {
+        match (button_switch.get_level(), *button_pressed) {
             (Level::High, false) => {
                 if let Err(e) = printer::post_event(printer::PrinterEvent::ButtonPressed).await {
                     log::error!("BUTTON PRESSED: Printer error: {e}");
                 }
-                button_pressed = true;
+                *button_pressed = true;
             }
             (Level::Low, true) => {
-                button_pressed = false;
+                *button_pressed = false;
             }
             _ => {}
         }
 
-        if Local::now() - last_led_change > Duration::seconds(1) {
+        if Local::now() - *last_led_change > Duration::seconds(1) {
             button_led.toggle().unwrap();
-            last_led_change = Local::now();
+            *last_led_change = Local::now();
         }
 
-        last_time = time;
+        *last_time = time;
+    }
 
-        let colors = time.colors();
+    pub struct InteractiveState {
+        pub last_led_change: chrono::DateTime<Local>,
+        pub last_time: LightningTime,
+        pub button_pressed: bool,
+    }
+}
 
-        leds.set_color(colors.bolt, Block::BottomLeft);
+fn set_colors(colors: &LightningTimeColors, leds: &mut Leds) {
+    leds.set_color(colors.bolt, Block::BottomLeft);
 
-        for block in [Block::Top, Block::Center] {
-            leds.set_color(colors.zap, block);
-        }
+    for block in [Block::Top, Block::Center] {
+        leds.set_color(colors.zap, block);
+    }
 
-        for block in [Block::Right, Block::BottomRight] {
-            leds.set_color(colors.spark, block);
-        }
-
-        Timer::after_millis(10).await;
+    for block in [Block::Right, Block::BottomRight] {
+        leds.set_color(colors.spark, block);
     }
 }
 
