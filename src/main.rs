@@ -13,7 +13,6 @@ use esp_idf_svc::{
         sys,
         task::block_on,
     },
-    io,
     nvs::EspDefaultNvsPartition,
     ota::EspOta,
     sntp,
@@ -311,6 +310,8 @@ fn main() {
     std::thread::Builder::new()
         .stack_size(60_000)
         .spawn(|| {
+            // This has caused problems in the past. If async-io or network stack-related stuff
+            // is causing problems then try increasing `max_fds`.
             anyesp!(unsafe {
                 sys::esp_vfs_eventfd_register(&sys::esp_vfs_eventfd_config_t { max_fds: 16 })
             })
