@@ -299,34 +299,60 @@ pub async fn self_update(leds: &mut Leds) -> anyhow::Result<()> {
 }
 
 pub async fn connect_to_network(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<()> {
-    let config = Configuration::Client(ClientConfiguration {
-        ssid: dotenv!("WIFI_SSID").try_into().unwrap(),
-        password: "".try_into().unwrap(),
-        auth_method: esp_idf_svc::wifi::AuthMethod::WPA2Enterprise,
-        ..Default::default()
-    });
+    #[cfg(not(feature = "wpa-personal"))]
+    {
+        let config = Configuration::Client(ClientConfiguration {
+            ssid: dotenv!("WIFI_SSID").try_into().unwrap(),
+            password: "".try_into().unwrap(),
+            auth_method: esp_idf_svc::wifi::AuthMethod::WPA2Enterprise,
+            ..Default::default()
+        });
 
-    wifi.set_configuration(&config).map_err(convert_error)?;
+        wifi.set_configuration(&config).map_err(convert_error)?;
 
-    unsafe {
-        use esp_idf_svc::sys::*;
-        anyesp!(esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA))?;
-        anyesp!(esp_eap_client_set_identity(
-            dotenv!("WIFI_EMAIL").as_ptr(),
-            dotenv!("WIFI_EMAIL").len() as i32
-        ))?;
-        anyesp!(esp_eap_client_set_username(
-            dotenv!("WIFI_USERNAME").as_ptr(),
-            dotenv!("WIFI_USERNAME").len() as i32
-        ))?;
-        anyesp!(esp_eap_client_set_password(
-            dotenv!("WIFI_PASSWORD").as_ptr(),
-            dotenv!("WIFI_PASSWORD").len() as i32
-        ))?;
-        anyesp!(esp_eap_client_set_ttls_phase2_method(
-            esp_eap_ttls_phase2_types_ESP_EAP_TTLS_PHASE2_MSCHAPV2
-        ))?;
-        anyesp!(esp_wifi_sta_enterprise_enable())?;
+        unsafe {
+            use esp_idf_svc::sys::*;
+            anyesp!(esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA))?;
+            anyesp!(esp_eap_client_set_identity(
+                dotenv!("WIFI_EMAIL").as_ptr(),
+                dotenv!("WIFI_EMAIL").len() as i32
+            ))?;
+            anyesp!(esp_eap_client_set_username(
+                dotenv!("WIFI_USERNAME").as_ptr(),
+                dotenv!("WIFI_USERNAME").len() as i32
+            ))?;
+            anyesp!(esp_eap_client_set_password(
+                dotenv!("WIFI_PASSWORD").as_ptr(),
+                dotenv!("WIFI_PASSWORD").len() as i32
+            ))?;
+            anyesp!(esp_eap_client_set_ttls_phase2_method(
+                esp_eap_ttls_phase2_types_ESP_EAP_TTLS_PHASE2_MSCHAPV2
+            ))?;
+            anyesp!(esp_wifi_sta_enterprise_enable())?;
+            anyesp!(esp_wifi_set_ps(
+                esp_idf_svc::sys::wifi_ps_type_t_WIFI_PS_NONE
+            ))?;
+        }
+    }
+
+    #[cfg(feature = "wpa-personal")]
+    {
+        let config = Configuration::Client(ClientConfiguration {
+            ssid: dotenv!("WIFI_SSID").try_into().unwrap(),
+            password: dotenv!("WIFI_PASSWORD").try_into().unwrap(),
+            auth_method: esp_idf_svc::wifi::AuthMethod::WPAWPA2Personal,
+            ..Default::default()
+        });
+
+        wifi.set_configuration(&config).map_err(convert_error)?;
+
+        unsafe {
+            use esp_idf_svc::sys::*;
+            anyesp!(esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA))?;
+            anyesp!(esp_wifi_set_ps(
+                esp_idf_svc::sys::wifi_ps_type_t_WIFI_PS_NONE
+            ))?;
+        }
     }
 
     wifi.start().await.map_err(convert_error)?;

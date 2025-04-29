@@ -10,6 +10,7 @@ use esp_idf_svc::{
         gpio::{Gpio15, Gpio36, Input, Output, PinDriver},
         ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver},
         peripherals::Peripherals,
+        sys,
         task::block_on,
     },
     io,
@@ -23,6 +24,7 @@ use lightning_time::{LightningTime, LightningTimeColors};
 use log::info;
 use palette::rgb::Rgb;
 use sign_firmware::{
+    anyesp,
     net::{connect_to_network, self_update},
     Block, Leds,
 };
@@ -309,7 +311,10 @@ fn main() {
     std::thread::Builder::new()
         .stack_size(60_000)
         .spawn(|| {
-            let _ = io::vfs::MountedEventfs::mount(5).unwrap();
+            anyesp!(unsafe {
+                sys::esp_vfs_eventfd_register(&sys::esp_vfs_eventfd_config_t { max_fds: 16 })
+            })
+            .unwrap();
             block_on(amain(leds, wifi, button_switch, button_led))
         })
         .unwrap()

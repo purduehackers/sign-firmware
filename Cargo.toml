@@ -10,6 +10,7 @@ partition_table = "partitions.csv"
 
 [features]
 interactive = []
+wpa-personal = []
 
 [[bin]]
 name = "sign-firmware"
