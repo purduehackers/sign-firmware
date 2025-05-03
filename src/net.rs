@@ -1,6 +1,6 @@
 use core::str::FromStr;
-use std::net::ToSocketAddrs;
 use std::net::TcpStream;
+use std::net::ToSocketAddrs;
 
 use async_io_mini::Async;
 
