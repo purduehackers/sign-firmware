@@ -6,8 +6,8 @@ pub mod printer;
 
 use anyhow::anyhow;
 use esp_idf_svc::{hal::ledc::LedcDriver, sys::EspError};
-use std::os::fd::{AsRawFd, IntoRawFd};
 use std::net::TcpStream;
+use std::os::fd::{AsRawFd, IntoRawFd};
 
 #[macro_export]
 macro_rules! anyesp {
