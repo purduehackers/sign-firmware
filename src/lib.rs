@@ -6,7 +6,8 @@ pub mod printer;
 
 use anyhow::anyhow;
 use esp_idf_svc::{hal::ledc::LedcDriver, sys::EspError};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, IntoRawFd};
+use std::net::TcpStream;
 
 #[macro_export]
 macro_rules! anyesp {
@@ -101,10 +102,10 @@ impl Leds {
 }
 
 /// Allows for an async version of the TLS socket
-pub struct EspTlsSocket(Option<tokio::net::TcpStream>);
+pub struct EspTlsSocket(Option<async_io_mini::Async<TcpStream>>);
 
 impl EspTlsSocket {
-    pub const fn new(socket: tokio::net::TcpStream) -> Self {
+    pub const fn new(socket: async_io_mini::Async<TcpStream>) -> Self {
         Self(Some(socket))
     }
 
@@ -119,7 +120,7 @@ impl EspTlsSocket {
         self.0
             .as_ref()
             .unwrap()
-            .poll_read_ready(ctx)
+            .poll_readable(ctx)
             .map_err(|_| EspError::from_infallible::<{ esp_idf_svc::sys::ESP_FAIL }>())
     }
 
@@ -130,13 +131,14 @@ impl EspTlsSocket {
         self.0
             .as_ref()
             .unwrap()
-            .poll_write_ready(ctx)
+            .poll_writable(ctx)
             .map_err(|_| EspError::from_infallible::<{ esp_idf_svc::sys::ESP_FAIL }>())
     }
 
     fn release(&mut self) -> Result<(), esp_idf_svc::sys::EspError> {
-        // Drop
-        self.0.take().unwrap();
+        let socket = self.0.take().unwrap();
+        // ESP-IDF expects to be able to close the socket on its own
+        let _ = socket.into_inner().unwrap().into_raw_fd();
 
         Ok(())
     }

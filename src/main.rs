@@ -46,7 +46,6 @@ async fn amain(
         .expect("wifi connection");
 
     // Check for update
-    #[cfg(feature = "interactive")]
     self_update(&mut leds).await.expect("Self-update to work");
 
     #[cfg(feature = "interactive")]

@@ -1,5 +1,8 @@
 use core::str::FromStr;
 use std::net::ToSocketAddrs;
+use std::net::TcpStream;
+
+use async_io_mini::Async;
 
 use dotenvy_macro::dotenv;
 use embassy_time::with_timeout;
@@ -37,8 +40,7 @@ pub async fn generate_tls(url: &str) -> anyhow::Result<EspAsyncTls<EspTlsSocket>
         .unwrap()
         .collect::<Vec<_>>();
 
-    let socket = tokio::net::TcpSocket::new_v4()?;
-    let socket = socket.connect(addr[0]).await?;
+    let socket = Async::<TcpStream>::connect(addr[0]).await.unwrap();
 
     let mut tls = esp_idf_svc::tls::EspAsyncTls::adopt(EspTlsSocket::new(socket)).unwrap();
 
