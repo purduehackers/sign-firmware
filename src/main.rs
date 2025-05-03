@@ -209,92 +209,92 @@ fn main() {
 
     let leds = [
         LedcDriver::new(
-            peripherals.ledc.channel2,
+            peripherals.ledc.channel1,
             &low_driver,
             peripherals.pins.gpio23,
         )
         .unwrap(),
         LedcDriver::new(
-            peripherals.ledc.channel0,
+            peripherals.ledc.channel2,
             &low_driver,
             peripherals.pins.gpio22,
         )
         .unwrap(),
         LedcDriver::new(
-            peripherals.ledc.channel1,
+            peripherals.ledc.channel0,
             &low_driver,
             peripherals.pins.gpio21,
         )
         .unwrap(),
         LedcDriver::new(
-            peripherals.ledc.channel5,
+            peripherals.ledc.channel4,
             &low_driver,
             peripherals.pins.gpio19,
         )
         .unwrap(),
         LedcDriver::new(
-            peripherals.ledc.channel3,
+            peripherals.ledc.channel5,
             &low_driver,
             peripherals.pins.gpio18,
         )
         .unwrap(),
         LedcDriver::new(
-            peripherals.ledc.channel4,
+            peripherals.ledc.channel3,
             &low_driver,
             peripherals.pins.gpio5,
         )
         .unwrap(),
         LedcDriver::new(
-            peripherals.hledc.channel0,
-            &high_driver,
+            peripherals.ledc.channel7,
+            &low_driver,
             peripherals.pins.gpio17,
         )
         .unwrap(),
         LedcDriver::new(
-            peripherals.ledc.channel6,
-            &low_driver,
+            peripherals.hledc.channel0,
+            &high_driver,
             peripherals.pins.gpio16,
         )
         .unwrap(),
         // High speed
         LedcDriver::new(
-            peripherals.ledc.channel7,
+            peripherals.ledc.channel6,
             &low_driver,
             peripherals.pins.gpio4,
         )
         .unwrap(),
         LedcDriver::new(
-            peripherals.hledc.channel3,
+            peripherals.hledc.channel2,
             &high_driver,
             peripherals.pins.gpio33,
         )
         .unwrap(),
         LedcDriver::new(
-            peripherals.hledc.channel1,
+            peripherals.hledc.channel3,
             &high_driver,
             peripherals.pins.gpio25,
         )
         .unwrap(),
         LedcDriver::new(
-            peripherals.hledc.channel2,
+            peripherals.hledc.channel1,
             &high_driver,
             peripherals.pins.gpio26,
         )
         .unwrap(),
         LedcDriver::new(
-            peripherals.hledc.channel6,
+            peripherals.hledc.channel5,
             &high_driver,
             peripherals.pins.gpio12,
         )
         .unwrap(),
         LedcDriver::new(
-            peripherals.hledc.channel4,
+            peripherals.hledc.channel6,
             &high_driver,
             peripherals.pins.gpio14,
         )
         .unwrap(),
         LedcDriver::new(
-            peripherals.hledc.channel5,
+            peripherals.hledc.channel4,
             &high_driver,
             peripherals.pins.gpio27,
         )
