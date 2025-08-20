@@ -404,6 +404,7 @@ async fn try_conenct_to_network(
 }
 
 pub async fn connect_to_network(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<()> {
+    // Note: make sure to add secrets to CI file
     let pal3 = NetworkSetupInfo::Enterprise {
         ssid: dotenv!("PAL3_SSID"),
         email: dotenv!("PAL3_EMAIL"),
