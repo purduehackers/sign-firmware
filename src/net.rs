@@ -56,9 +56,9 @@ pub fn create_raw_request_no_body<T>(request: &http::Request<T>) -> String {
     let uri = request.uri();
     let headers = request.headers();
 
-    let mut request_text = format!("{} {} HTTP/1.1\r\n", method, uri);
+    let mut request_text = format!("{method} {uri} HTTP/1.1\r\n");
     for (key, value) in headers {
-        request_text.push_str(&format!("{}: {}\r\n", key, value.to_str().unwrap()));
+        request_text.push_str(&format!("{key}: {}\r\n", value.to_str().unwrap()));
     }
     request_text.push_str("\r\n"); // End of headers
 
@@ -299,64 +299,96 @@ pub async fn self_update(leds: &mut Leds) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn connect_to_network(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<()> {
-    #[cfg(not(feature = "wpa-personal"))]
-    {
-        let config = Configuration::Client(ClientConfiguration {
-            ssid: dotenv!("WIFI_SSID").try_into().unwrap(),
-            password: "".try_into().unwrap(),
-            auth_method: esp_idf_svc::wifi::AuthMethod::WPA2Enterprise,
-            ..Default::default()
-        });
+enum NetworkSetupInfo {
+    Enterprise {
+        ssid: &'static str,
+        email: &'static str,
+        username: &'static str,
+        password: &'static str,
+    },
+    Personal {
+        ssid: &'static str,
+        password: &'static str,
+    },
+}
 
-        wifi.set_configuration(&config).map_err(convert_error)?;
+impl NetworkSetupInfo {
+    fn print_debug(&self) {
+        log::info!(
+            "Attempting to connect to '{}'",
+            match self {
+                Self::Enterprise { ssid, .. } => ssid,
+                Self::Personal { ssid, .. } => ssid,
+            }
+        )
+    }
+}
 
-        unsafe {
-            use esp_idf_svc::sys::*;
-            anyesp!(esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA))?;
-            anyesp!(esp_eap_client_set_identity(
-                dotenv!("WIFI_EMAIL").as_ptr(),
-                dotenv!("WIFI_EMAIL").len() as i32
-            ))?;
-            anyesp!(esp_eap_client_set_username(
-                dotenv!("WIFI_USERNAME").as_ptr(),
-                dotenv!("WIFI_USERNAME").len() as i32
-            ))?;
-            anyesp!(esp_eap_client_set_password(
-                dotenv!("WIFI_PASSWORD").as_ptr(),
-                dotenv!("WIFI_PASSWORD").len() as i32
-            ))?;
-            anyesp!(esp_eap_client_set_ttls_phase2_method(
-                esp_eap_ttls_phase2_types_ESP_EAP_TTLS_PHASE2_MSCHAPV2
-            ))?;
-            anyesp!(esp_wifi_sta_enterprise_enable())?;
-            anyesp!(esp_wifi_set_ps(
-                esp_idf_svc::sys::wifi_ps_type_t_WIFI_PS_NONE
-            ))?;
+async fn try_conenct_to_network(
+    wifi: &mut AsyncWifi<EspWifi<'static>>,
+    network: NetworkSetupInfo,
+) -> anyhow::Result<()> {
+    network.print_debug();
+
+    match network {
+        NetworkSetupInfo::Enterprise {
+            ssid,
+            email,
+            username,
+            password,
+        } => {
+            let config = Configuration::Client(ClientConfiguration {
+                ssid: ssid.try_into().unwrap(),
+                password: "".try_into().unwrap(),
+                auth_method: esp_idf_svc::wifi::AuthMethod::WPA2Enterprise,
+                ..Default::default()
+            });
+
+            wifi.set_configuration(&config).map_err(convert_error)?;
+
+            unsafe {
+                use esp_idf_svc::sys::*;
+                anyesp!(esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA))?;
+                anyesp!(esp_eap_client_set_identity(
+                    email.as_ptr(),
+                    email.len() as i32
+                ))?;
+                anyesp!(esp_eap_client_set_username(
+                    username.as_ptr(),
+                    username.len() as i32
+                ))?;
+                anyesp!(esp_eap_client_set_password(
+                    password.as_ptr(),
+                    password.len() as i32
+                ))?;
+                anyesp!(esp_eap_client_set_ttls_phase2_method(
+                    esp_eap_ttls_phase2_types_ESP_EAP_TTLS_PHASE2_MSCHAPV2
+                ))?;
+                anyesp!(esp_wifi_sta_enterprise_enable())?;
+                anyesp!(esp_wifi_set_ps(
+                    esp_idf_svc::sys::wifi_ps_type_t_WIFI_PS_NONE
+                ))?;
+            }
+        }
+        NetworkSetupInfo::Personal { ssid, password } => {
+            let config = Configuration::Client(ClientConfiguration {
+                ssid: ssid.try_into().unwrap(),
+                password: password.try_into().unwrap(),
+                auth_method: esp_idf_svc::wifi::AuthMethod::WPAWPA2Personal,
+                ..Default::default()
+            });
+
+            wifi.set_configuration(&config).map_err(convert_error)?;
+
+            unsafe {
+                use esp_idf_svc::sys::*;
+                anyesp!(esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA))?;
+                anyesp!(esp_wifi_set_ps(
+                    esp_idf_svc::sys::wifi_ps_type_t_WIFI_PS_NONE
+                ))?;
+            }
         }
     }
-
-    #[cfg(feature = "wpa-personal")]
-    {
-        let config = Configuration::Client(ClientConfiguration {
-            ssid: dotenv!("WIFI_SSID").try_into().unwrap(),
-            password: dotenv!("WIFI_PASSWORD").try_into().unwrap(),
-            auth_method: esp_idf_svc::wifi::AuthMethod::WPAWPA2Personal,
-            ..Default::default()
-        });
-
-        wifi.set_configuration(&config).map_err(convert_error)?;
-
-        unsafe {
-            use esp_idf_svc::sys::*;
-            anyesp!(esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA))?;
-            anyesp!(esp_wifi_set_ps(
-                esp_idf_svc::sys::wifi_ps_type_t_WIFI_PS_NONE
-            ))?;
-        }
-    }
-
-    wifi.start().await.map_err(convert_error)?;
 
     // Connect but with a longer timeout
     wifi.wifi_mut().connect().map_err(convert_error)?;
@@ -367,6 +399,37 @@ pub async fn connect_to_network(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyho
     .await?;
 
     wifi.wait_netif_up().await.map_err(convert_error)?;
+
+    Ok(())
+}
+
+pub async fn connect_to_network(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<()> {
+    let pal3 = NetworkSetupInfo::Enterprise {
+        ssid: dotenv!("PAL3_SSID"),
+        email: dotenv!("PAL3_EMAIL"),
+        username: dotenv!("PAL3_USERNAME"),
+        password: dotenv!("PAL3_PASSWORD"),
+    };
+
+    let hotspot = NetworkSetupInfo::Personal {
+        ssid: dotenv!("JACK_SSID"),
+        password: dotenv!("JACK_PASSWORD"),
+    };
+    for network in [pal3, hotspot] {
+        wifi.start().await.map_err(convert_error)?;
+        match try_conenct_to_network(wifi, network).await {
+            Ok(()) => {
+                break;
+            }
+            Err(_) => {
+                wifi.stop().await.map_err(convert_error)?;
+            }
+        }
+    }
+
+    if !wifi.is_started()? {
+        anyhow::bail!("No network connection found!");
+    }
 
     info!("Wi-Fi connected!");
 

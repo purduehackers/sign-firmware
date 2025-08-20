@@ -1,6 +1,6 @@
 [package]
 name = "sign-firmware"
-version = "0.1.18"
+version = "0.1.19"
 authors = ["Jack Hogan <jackhogan11@gmail.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -10,7 +10,6 @@ partition_table = "partitions.csv"
 
 [features]
 interactive = []
-wpa-personal = []
 
 [[bin]]
 name = "sign-firmware"

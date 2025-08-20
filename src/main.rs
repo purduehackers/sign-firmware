@@ -305,7 +305,9 @@ fn main() {
     let button_led = PinDriver::output(peripherals.pins.gpio15).unwrap();
     let button_switch = PinDriver::input(peripherals.pins.gpio36).unwrap();
 
-    let leds = Leds::create(leds);
+    let mut leds = Leds::create(leds);
+    leds.set_all_colors(Rgb::new(128, 128, 128));
+    std::thread::sleep(std::time::Duration::from_secs(2));
 
     std::thread::Builder::new()
         .stack_size(60_000)
@@ -313,7 +315,7 @@ fn main() {
             // This has caused problems in the past. If async-io or network stack-related stuff
             // is causing problems then try increasing `max_fds`.
             anyesp!(unsafe {
-                sys::esp_vfs_eventfd_register(&sys::esp_vfs_eventfd_config_t { max_fds: 16 })
+                sys::esp_vfs_eventfd_register(&sys::esp_vfs_eventfd_config_t { max_fds: 32 })
             })
             .unwrap();
             block_on(amain(leds, wifi, button_switch, button_led))
