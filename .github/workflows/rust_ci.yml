@@ -62,7 +62,7 @@ jobs:
         run: |
           sudo apt-get install -y libudev-dev
           cargo install espflash
-          espflash save-image --chip esp32 target/xtensa-esp32-espidf/release/sign-firmware ${{ matrix.action.artifact_name }}.bin --partition-table partitions.csv
+          espflash save-image --chip esp32 target/xtensa-esp32-espidf/release/sign-firmware ${{ matrix.action.artifact_name }}.bin --partition-table partitions.csv --flash-size 16mb
           ls -la # List files to verify conversion
 
       # Upload the converted binary as an artifact
