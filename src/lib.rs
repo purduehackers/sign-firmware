@@ -40,9 +40,9 @@ pub enum Block {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Color {
-    Red = 0,
-    Green,
+    Green = 0,
     Blue,
+    Red,
 }
 
 impl Block {
