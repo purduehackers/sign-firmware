@@ -37,7 +37,8 @@ pub async fn self_update(leds: &mut Leds) -> anyhow::Result<()> {
     .await?;
 
     let body_str = core::str::from_utf8(&resp.body)?;
-    let manifest: GithubResponse = serde_json::from_str(body_str.trim().trim_end_matches(char::from(0)))?;
+    let manifest: GithubResponse =
+        serde_json::from_str(body_str.trim().trim_end_matches(char::from(0)))?;
 
     let local = semver::Version::new(
         env!("CARGO_PKG_VERSION_MAJOR").parse()?,

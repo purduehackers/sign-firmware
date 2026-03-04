@@ -54,7 +54,9 @@ pub fn ble_provision() -> anyhow::Result<WifiNetwork> {
 
     info!("BLE advertising as 'PH-Sign', waiting for credentials...");
 
-    let network = rx.recv().map_err(|e| anyhow::anyhow!("BLE channel recv: {e}"))?;
+    let network = rx
+        .recv()
+        .map_err(|e| anyhow::anyhow!("BLE channel recv: {e}"))?;
 
     // Clean up BLE
     ble_device

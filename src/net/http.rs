@@ -31,7 +31,8 @@ fn build_request_head(method: &str, url: &Url, headers: &[(&str, &str)]) -> Stri
     };
     let host = url.host_str().unwrap_or("");
 
-    let mut req = format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: PHSign/1.0.0\r\n");
+    let mut req =
+        format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: PHSign/1.0.0\r\n");
     for (k, v) in headers {
         req.push_str(&format!("{k}: {v}\r\n"));
     }
@@ -64,7 +65,9 @@ async fn read_response(tls: &mut EspAsyncTls<EspTlsSocket>) -> anyhow::Result<Ht
     let mut lines = header_str.split("\r\n");
 
     // Parse status line
-    let status_line = lines.next().ok_or_else(|| anyhow::anyhow!("Missing status line"))?;
+    let status_line = lines
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Missing status line"))?;
     let status = status_line
         .split_whitespace()
         .nth(1)
@@ -129,9 +132,7 @@ pub async fn http_get(url: &str, headers: &[(&str, &str)]) -> anyhow::Result<Htt
     let mut tls = generate_tls(url).await?;
 
     let req = build_request_head("GET", &parsed, headers);
-    tls.write_all(req.as_bytes())
-        .await
-        .map_err(convert_error)?;
+    tls.write_all(req.as_bytes()).await.map_err(convert_error)?;
 
     read_response(&mut tls).await
 }
@@ -149,9 +150,7 @@ pub async fn http_post(
     all_headers.push(("Content-Length", &len_str));
 
     let req = build_request_head("POST", &parsed, &all_headers);
-    tls.write_all(req.as_bytes())
-        .await
-        .map_err(convert_error)?;
+    tls.write_all(req.as_bytes()).await.map_err(convert_error)?;
     tls.write_all(body).await.map_err(convert_error)?;
 
     read_response(&mut tls).await
@@ -170,9 +169,7 @@ pub async fn follow_redirect(
         let mut tls = generate_tls(&current_url).await?;
 
         let req = build_request_head("GET", &parsed, headers);
-        tls.write_all(req.as_bytes())
-            .await
-            .map_err(convert_error)?;
+        tls.write_all(req.as_bytes()).await.map_err(convert_error)?;
 
         let resp = read_response(&mut tls).await?;
 
@@ -202,9 +199,7 @@ pub async fn follow_redirect_stream(
         let tls = generate_tls(&current_url).await?;
 
         let req = build_request_head("GET", &parsed, headers);
-        tls.write_all(req.as_bytes())
-            .await
-            .map_err(convert_error)?;
+        tls.write_all(req.as_bytes()).await.map_err(convert_error)?;
 
         // Read headers only (byte by byte until \r\n\r\n)
         let mut header_buf = Vec::with_capacity(2048);
@@ -231,7 +226,10 @@ pub async fn follow_redirect_stream(
         if (300..400).contains(&status) {
             // Find Location header
             for line in header_str.split("\r\n") {
-                if let Some(loc) = line.strip_prefix("Location: ").or_else(|| line.strip_prefix("location: ")) {
+                if let Some(loc) = line
+                    .strip_prefix("Location: ")
+                    .or_else(|| line.strip_prefix("location: "))
+                {
                     current_url = loc.to_string();
                     break;
                 }

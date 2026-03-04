@@ -311,9 +311,7 @@ async fn handle_ws_command(
                 "request_id": request_id,
                 "networks": networks,
             });
-            ws_conn
-                .send(&ws::WsMessage::Text(resp.to_string()))
-                .await?;
+            ws_conn.send(&ws::WsMessage::Text(resp.to_string())).await?;
         }
         "set_wifi" => {
             let networks: Vec<WifiNetwork> = serde_json::from_value(msg["networks"].clone())?;
@@ -322,9 +320,7 @@ async fn handle_ws_command(
                 "type": "wifi_ack",
                 "request_id": request_id,
             });
-            ws_conn
-                .send(&ws::WsMessage::Text(resp.to_string()))
-                .await?;
+            ws_conn.send(&ws::WsMessage::Text(resp.to_string())).await?;
         }
         other => {
             info!("Unknown WS command: {other}");
