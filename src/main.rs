@@ -24,7 +24,7 @@ use log::info;
 use palette::rgb::Rgb;
 use sign_firmware::{
     anyesp,
-    net::{connect_to_network, provision_device, self_update, ws_listen, DeviceConfig},
+    net::{ble, connect_to_network, provision_device, self_update, ws_listen, DeviceConfig},
     Block, Leds,
 };
 
@@ -42,9 +42,22 @@ async fn amain(
     // Red before wifi
     leds.set_all_colors(Rgb::new(255, 0, 0));
 
-    connect_to_network(&mut wifi, &device_config)
-        .await
-        .expect("wifi connection");
+    loop {
+        match connect_to_network(&mut wifi, &device_config).await {
+            Ok(()) => break,
+            Err(e) => {
+                log::warn!("WiFi failed: {e}, starting BLE provisioning...");
+                leds.set_all_colors(Rgb::new(128, 0, 128)); // purple
+                match ble::ble_provision() {
+                    Ok(network) => {
+                        device_config.add_wifi_network(&network).ok();
+                        info!("Got WiFi creds via BLE, retrying...");
+                    }
+                    Err(e) => log::error!("BLE provision failed: {e}"),
+                }
+            }
+        }
+    }
 
     // Provision device if needed
     if let Err(e) = provision_device(&mut device_config).await {

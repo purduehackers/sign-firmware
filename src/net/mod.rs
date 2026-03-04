@@ -1,3 +1,4 @@
+pub mod ble;
 pub mod config;
 pub mod http;
 pub mod self_update;

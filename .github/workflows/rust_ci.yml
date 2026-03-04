@@ -57,11 +57,15 @@ jobs:
       - name: Run command
         run: cargo ${{ matrix.action.command }} ${{ matrix.action.args }}
 
+      - name: Install cargo-binstall
+        if: matrix.action.command == 'build'
+        uses: cargo-bins/cargo-binstall@main
+
       - name: Convert binary to .bin format
         if: matrix.action.command == 'build'
         run: |
           sudo apt-get install -y libudev-dev
-          cargo install espflash
+          cargo binstall espflash --no-confirm
           espflash save-image --chip esp32 target/xtensa-esp32-espidf/release/sign-firmware ${{ matrix.action.artifact_name }}.bin --partition-table partitions.csv --flash-size 16mb
           ls -la # List files to verify conversion
 

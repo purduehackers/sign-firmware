@@ -71,4 +71,10 @@ impl DeviceConfig {
         info!("Stored {} WiFi networks in NVS", networks.len());
         Ok(())
     }
+
+    pub fn add_wifi_network(&mut self, network: &WifiNetwork) -> anyhow::Result<()> {
+        let mut networks = self.get_wifi_networks();
+        networks.push(network.clone());
+        self.set_wifi_networks(&networks)
+    }
 }
