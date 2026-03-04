@@ -1,10 +1,4 @@
-use esp_idf_svc::io::asynch::Write;
-use http::Request;
-
-use crate::{
-    convert_error,
-    net::{create_raw_request, generate_tls},
-};
+use crate::net::http;
 
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub enum UnderlineMode {
@@ -74,28 +68,14 @@ impl PrinterEvent {
 }
 
 pub async fn post_event(event: PrinterEvent) -> anyhow::Result<()> {
-    let url = "https://api.purduehackers.com/printer/print";
-    let mut tls = generate_tls(url).await?;
-
     let data = serde_json::to_string(&event.message())?;
 
-    let request = Request::builder()
-        .method("POST")
-        .header("User-Agent", "PHSign/1.0.0")
-        .header("Content-Type", "application/json")
-        .header("Host", "api.purduehackers.com")
-        .header("Content-Length", data.len())
-        .uri(url)
-        .body(data)
-        .unwrap();
-
-    let request_text = create_raw_request(&request);
-
-    tls.write_all(request_text.as_bytes())
-        .await
-        .map_err(convert_error)?;
-
-    tls.flush().await?;
+    http::http_post(
+        "https://api.purduehackers.com/printer/print",
+        &[("Content-Type", "application/json")],
+        data.as_bytes(),
+    )
+    .await?;
 
     Ok(())
 }
