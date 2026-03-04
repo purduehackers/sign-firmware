@@ -24,7 +24,7 @@ use log::info;
 use palette::rgb::Rgb;
 use sign_firmware::{
     anyesp,
-    net::{connect_to_network, self_update},
+    net::{connect_to_network, provision_device, self_update, ws_listen, DeviceConfig},
     Block, Leds,
 };
 
@@ -33,6 +33,7 @@ extern crate alloc;
 async fn amain(
     mut leds: Leds,
     mut wifi: AsyncWifi<EspWifi<'static>>,
+    mut device_config: DeviceConfig,
     #[allow(unused_variables)] button_switch: PinDriver<'static, Gpio36, Input>,
     #[allow(unused_variables)]
     #[allow(unused_mut)]
@@ -41,9 +42,23 @@ async fn amain(
     // Red before wifi
     leds.set_all_colors(Rgb::new(255, 0, 0));
 
-    connect_to_network(&mut wifi)
+    connect_to_network(&mut wifi, &device_config)
         .await
         .expect("wifi connection");
+
+    // Provision device if needed
+    if let Err(e) = provision_device(&mut device_config).await {
+        log::error!("Provisioning failed: {e}");
+    }
+
+    // Spawn WebSocket listener thread if we have a device key
+    if let Some(key) = device_config.get_device_key() {
+        let config = std::sync::Arc::new(std::sync::Mutex::new(device_config));
+        std::thread::Builder::new()
+            .stack_size(16_000)
+            .spawn(move || block_on(ws_listen(key, config)))
+            .expect("ws listener thread");
+    }
 
     // Check for update
     self_update(&mut leds).await.expect("Self-update to work");
@@ -181,6 +196,9 @@ fn main() {
 
     let sys_loop = EspSystemEventLoop::take().unwrap();
     let nvs = EspDefaultNvsPartition::take().unwrap();
+    let nvs_config = nvs.clone();
+
+    let device_config = DeviceConfig::new(nvs_config).expect("NVS config");
 
     let wifi = AsyncWifi::wrap(
         EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs)).unwrap(),
@@ -318,7 +336,7 @@ fn main() {
                 sys::esp_vfs_eventfd_register(&sys::esp_vfs_eventfd_config_t { max_fds: 32 })
             })
             .unwrap();
-            block_on(amain(leds, wifi, button_switch, button_led))
+            block_on(amain(leds, wifi, device_config, button_switch, button_led))
         })
         .unwrap()
         .join()
