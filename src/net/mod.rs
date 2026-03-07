@@ -162,9 +162,14 @@ pub async fn connect_to_network(
     wifi: &mut AsyncWifi<EspWifi<'static>>,
     device_config: &DeviceConfig,
 ) -> anyhow::Result<()> {
-    // First: try NVS-stored WiFi networks (provisioned via WebSocket)
-    let nvs_networks: Vec<NetworkSetupInfo> = device_config
-        .get_wifi_networks()
+    connect_to_network_with(wifi, device_config.get_wifi_networks()).await
+}
+
+pub async fn connect_to_network_with(
+    wifi: &mut AsyncWifi<EspWifi<'static>>,
+    nvs_networks: Vec<WifiNetwork>,
+) -> anyhow::Result<()> {
+    let nvs_networks: Vec<NetworkSetupInfo> = nvs_networks
         .into_iter()
         .map(NetworkSetupInfo::from)
         .collect();

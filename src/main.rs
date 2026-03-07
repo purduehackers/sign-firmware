@@ -24,26 +24,23 @@ use log::info;
 use palette::rgb::Rgb;
 use sign_firmware::{
     anyesp,
-    net::{ble, connect_to_network, provision_device, self_update, ws_listen, DeviceConfig},
+    net::{
+        ble, connect_to_network, connect_to_network_with, provision_device, self_update, ws_listen,
+        DeviceConfig,
+    },
     Block, Leds,
 };
 
 extern crate alloc;
 
-async fn amain(
-    mut leds: Leds,
-    mut wifi: AsyncWifi<EspWifi<'static>>,
-    mut device_config: DeviceConfig,
-    #[allow(unused_variables)] button_switch: PinDriver<'static, Gpio36, Input>,
-    #[allow(unused_variables)]
-    #[allow(unused_mut)]
-    mut button_led: PinDriver<'static, Gpio15, Output>,
+async fn wifi_connect(
+    wifi: &mut AsyncWifi<EspWifi<'static>>,
+    device_config: &mut DeviceConfig,
+    leds: &mut Leds,
 ) {
-    // Red before wifi
-    leds.set_all_colors(Rgb::new(255, 0, 0));
-
+    leds.set_all_colors(Rgb::new(255, 0, 0)); // Red while connecting
     loop {
-        match connect_to_network(&mut wifi, &device_config).await {
+        match connect_to_network(wifi, device_config).await {
             Ok(()) => break,
             Err(e) => {
                 log::warn!("WiFi failed: {e}, starting BLE provisioning...");
@@ -58,23 +55,67 @@ async fn amain(
             }
         }
     }
+}
+
+async fn wifi_reconnect(
+    wifi: &mut AsyncWifi<EspWifi<'static>>,
+    device_config: &std::sync::Arc<std::sync::Mutex<DeviceConfig>>,
+) {
+    log::warn!("WiFi disconnected, attempting to reconnect...");
+    // Stop wifi before reconnecting
+    if let Err(e) = wifi.stop().await {
+        log::error!("WiFi stop failed: {e}");
+    }
+    loop {
+        // Extract networks while holding the lock briefly, then release before await
+        let networks = {
+            let config = device_config.lock().unwrap();
+            config.get_wifi_networks()
+        };
+        match connect_to_network_with(wifi, networks).await {
+            Ok(()) => {
+                info!("WiFi reconnected!");
+                return;
+            }
+            Err(e) => {
+                log::warn!("WiFi reconnect failed: {e}, retrying in 5s...");
+                Timer::after_millis(5000).await;
+            }
+        }
+    }
+}
+
+async fn amain(
+    mut leds: Leds,
+    mut wifi: AsyncWifi<EspWifi<'static>>,
+    mut device_config: DeviceConfig,
+    #[allow(unused_variables)] button_switch: PinDriver<'static, Gpio36, Input>,
+    #[allow(unused_variables)]
+    #[allow(unused_mut)]
+    mut button_led: PinDriver<'static, Gpio15, Output>,
+) {
+    wifi_connect(&mut wifi, &mut device_config, &mut leds).await;
 
     // Provision device if needed
     if let Err(e) = provision_device(&mut device_config).await {
         log::error!("Provisioning failed: {e}");
     }
 
+    let config = std::sync::Arc::new(std::sync::Mutex::new(device_config));
+
     // Spawn WebSocket listener thread if we have a device key
-    if let Some(key) = device_config.get_device_key() {
-        let config = std::sync::Arc::new(std::sync::Mutex::new(device_config));
+    if let Some(key) = config.lock().unwrap().get_device_key() {
+        let ws_config = config.clone();
         std::thread::Builder::new()
             .stack_size(16_000)
-            .spawn(move || block_on(ws_listen(key, config)))
+            .spawn(move || block_on(ws_listen(key, ws_config)))
             .expect("ws listener thread");
     }
 
     // Check for update
-    self_update(&mut leds).await.expect("Self-update to work");
+    if let Err(e) = self_update(&mut leds).await {
+        log::warn!("Self-update check failed: {e}");
+    }
 
     #[cfg(feature = "interactive")]
     let mut interactive_state = interactive::InteractiveState {
@@ -83,6 +124,11 @@ async fn amain(
         button_pressed: false,
     };
     loop {
+        // Check WiFi connectivity and reconnect if needed
+        if !wifi.wifi().is_connected().unwrap_or(false) {
+            wifi_reconnect(&mut wifi, &config).await;
+        }
+
         let time = LightningTime::from(Local::now().with_timezone(&Eastern).time());
 
         #[cfg(feature = "interactive")]
@@ -102,7 +148,9 @@ async fn amain(
             && Local::now().minute() == 0
             && Local::now().second() == 0
         {
-            self_update(&mut leds).await.expect("Self-update to work");
+            if let Err(e) = self_update(&mut leds).await {
+                log::warn!("Weekly self-update check failed: {e}");
+            }
         }
 
         Timer::after_millis(10).await;
