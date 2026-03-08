@@ -1,6 +1,8 @@
 # Sign Firmware
 This is the firmware for the Sign. It features Lightning Time and self-updating firmware.
 
+Monitor the status of connected signs at https://sign.purduehackers.com.
+
 ## Important
 - There are credetials stored in the GitHub action secrets that need to be updated whenever the `.env` file is updated.
 
