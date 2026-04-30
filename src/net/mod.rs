@@ -195,10 +195,8 @@ pub async fn connect_to_network_with(
         },
     ];
 
-    let networks: Vec<NetworkSetupInfo> = nvs_networks
-        .into_iter()
-        .chain(bootstrap_networks)
-        .collect();
+    let networks: Vec<NetworkSetupInfo> =
+        nvs_networks.into_iter().chain(bootstrap_networks).collect();
 
     const MAX_ATTEMPTS: u32 = 3;
     for attempt in 1..=MAX_ATTEMPTS {
