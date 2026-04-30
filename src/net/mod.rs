@@ -82,11 +82,11 @@ impl From<WifiNetwork> for NetworkSetupInfo {
 
 async fn try_connect_to_network(
     wifi: &mut AsyncWifi<EspWifi<'static>>,
-    network: NetworkSetupInfo,
+    network: &NetworkSetupInfo,
 ) -> anyhow::Result<()> {
     network.print_debug();
 
-    match &network {
+    match network {
         NetworkSetupInfo::Enterprise {
             ssid,
             email,
@@ -195,25 +195,37 @@ pub async fn connect_to_network_with(
         },
     ];
 
-    for network in nvs_networks.into_iter().chain(bootstrap_networks) {
-        wifi.start().await.map_err(convert_error)?;
-        match try_connect_to_network(wifi, network).await {
-            Ok(()) => {
-                break;
+    let networks: Vec<NetworkSetupInfo> = nvs_networks
+        .into_iter()
+        .chain(bootstrap_networks)
+        .collect();
+
+    const MAX_ATTEMPTS: u32 = 3;
+    for attempt in 1..=MAX_ATTEMPTS {
+        for network in networks.iter() {
+            wifi.start().await.map_err(convert_error)?;
+            match try_connect_to_network(wifi, network).await {
+                Ok(()) => {
+                    info!("Wi-Fi connected!");
+                    return Ok(());
+                }
+                Err(e) => {
+                    log::warn!("Connection attempt failed: {e}");
+                    wifi.stop().await.map_err(convert_error)?;
+                }
             }
-            Err(_) => {
-                wifi.stop().await.map_err(convert_error)?;
-            }
+        }
+
+        if attempt < MAX_ATTEMPTS {
+            let backoff_secs = 2u64.pow(attempt - 1);
+            log::warn!(
+                "All networks failed (attempt {attempt}/{MAX_ATTEMPTS}), retrying in {backoff_secs}s..."
+            );
+            embassy_time::Timer::after_secs(backoff_secs).await;
         }
     }
 
-    if !wifi.is_started()? {
-        anyhow::bail!("No network connection found!");
-    }
-
-    info!("Wi-Fi connected!");
-
-    Ok(())
+    anyhow::bail!("No network connection found after {MAX_ATTEMPTS} attempts!");
 }
 
 const WS_URL: &str = "wss://api.purduehackers.com/sign/ws";
