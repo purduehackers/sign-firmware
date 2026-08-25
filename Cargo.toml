@@ -1,6 +1,12 @@
+[workspace]
+members = ["crates/script-env"]
+# The validator builds for wasm32 with a stable toolchain and its own lockfile;
+# keeping it out of the workspace keeps `--workspace` builds xtensa-only.
+exclude = ["crates/validator"]
+
 [package]
 name = "sign-firmware"
-version = "0.2.3"
+version = "0.3.0"
 authors = ["Jack Hogan <jackhogan11@gmail.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -69,6 +75,7 @@ esp-idf-svc = { version = "0.51", default-features = false, features = [
     "critical-section",
 ] }
 anyhow = { version = "1.0.88", default-features = false }
+script-env = { path = "crates/script-env" }
 embedded-svc = { version = "0.28.0", features = ["nightly"] }
 http = "1.1.0"
 url = "2.5.2"

@@ -2,3 +2,5 @@
 /.embuild
 /target
 /.env
+/crates/validator/target
+/crates/validator/pkg

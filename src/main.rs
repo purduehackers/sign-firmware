@@ -1,5 +1,3 @@
-#![feature(type_alias_impl_trait)]
-
 use build_time::build_time_utc;
 use chrono::{Datelike, Local, Timelike, Weekday};
 use chrono_tz::US::Eastern;
@@ -24,10 +22,8 @@ use log::info;
 use palette::rgb::Rgb;
 use sign_firmware::{
     anyesp,
-    net::{
-        ble, connect_to_network, connect_to_network_with, provision_device, self_update, ws_listen,
-        DeviceConfig,
-    },
+    net::{ble, connect_to_network, connect_to_network_with, self_update, ws_listen, DeviceConfig},
+    script::SharedLeds,
     Block, Leds,
 };
 
@@ -36,15 +32,15 @@ extern crate alloc;
 async fn wifi_connect(
     wifi: &mut AsyncWifi<EspWifi<'static>>,
     device_config: &mut DeviceConfig,
-    leds: &mut Leds,
+    leds: &SharedLeds,
 ) {
-    leds.set_all_colors(Rgb::new(255, 0, 0)); // Red while connecting
+    leds.lock().unwrap().set_all_colors(Rgb::new(255, 0, 0)); // Red while connecting
     loop {
         match connect_to_network(wifi, device_config).await {
             Ok(()) => break,
             Err(e) => {
                 log::warn!("WiFi failed: {e}, starting BLE provisioning...");
-                leds.set_all_colors(Rgb::new(128, 0, 128)); // purple
+                leds.lock().unwrap().set_all_colors(Rgb::new(128, 0, 128)); // purple
                 match ble::ble_provision() {
                     Ok(network) => {
                         device_config.add_wifi_network(&network).ok();
@@ -86,7 +82,7 @@ async fn wifi_reconnect(
 }
 
 async fn amain(
-    mut leds: Leds,
+    leds: SharedLeds,
     mut wifi: AsyncWifi<EspWifi<'static>>,
     mut device_config: DeviceConfig,
     #[allow(unused_variables)] button_switch: PinDriver<'static, Gpio36, Input>,
@@ -94,26 +90,24 @@ async fn amain(
     #[allow(unused_mut)]
     mut button_led: PinDriver<'static, Gpio15, Output>,
 ) {
-    wifi_connect(&mut wifi, &mut device_config, &mut leds).await;
-
-    // Provision device if needed
-    if let Err(e) = provision_device(&mut device_config).await {
-        log::error!("Provisioning failed: {e}");
-    }
+    wifi_connect(&mut wifi, &mut device_config, &leds).await;
 
     let config = std::sync::Arc::new(std::sync::Mutex::new(device_config));
 
-    // Spawn WebSocket listener thread if we have a device key
-    if let Some(key) = config.lock().unwrap().get_device_key() {
-        let ws_config = config.clone();
-        std::thread::Builder::new()
-            .stack_size(16_000)
-            .spawn(move || block_on(ws_listen(key, ws_config)))
-            .expect("ws listener thread");
-    }
+    // While a script runs, the WebSocket thread owns the LEDs and the
+    // Lightning Time loop below stands down.
+    let script_active = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    let ws_config = config.clone();
+    let ws_leds = leds.clone();
+    let ws_script_active = script_active.clone();
+    std::thread::Builder::new()
+        .stack_size(24_000)
+        .spawn(move || block_on(ws_listen(ws_config, ws_leds, ws_script_active)))
+        .expect("ws listener thread");
 
     // Check for update
-    if let Err(e) = self_update(&mut leds).await {
+    if let Err(e) = self_update(&leds).await {
         log::warn!("Self-update check failed: {e}");
     }
 
@@ -140,7 +134,10 @@ async fn amain(
         )
         .await;
 
-        set_colors(&time.colors(), &mut leds);
+        // A running script owns the LEDs.
+        if !script_active.load(std::sync::atomic::Ordering::Relaxed) {
+            set_colors(&time.colors(), &leds);
+        }
 
         // Weekly self-update check
         if Local::now().weekday() == Weekday::Sat
@@ -148,7 +145,7 @@ async fn amain(
             && Local::now().minute() == 0
             && Local::now().second() == 0
         {
-            if let Err(e) = self_update(&mut leds).await {
+            if let Err(e) = self_update(&leds).await {
                 log::warn!("Weekly self-update check failed: {e}");
             }
         }
@@ -220,7 +217,9 @@ mod interactive {
     }
 }
 
-fn set_colors(colors: &LightningTimeColors, leds: &mut Leds) {
+fn set_colors(colors: &LightningTimeColors, leds: &SharedLeds) {
+    let mut leds = leds.lock().unwrap();
+
     leds.set_color(colors.bolt, Block::BottomLeft);
 
     for block in [Block::Top, Block::Center] {
@@ -387,6 +386,7 @@ fn main() {
     let mut leds = Leds::create(leds);
     leds.set_all_colors(Rgb::new(128, 128, 128));
     std::thread::sleep(std::time::Duration::from_secs(2));
+    let leds: SharedLeds = std::sync::Arc::new(std::sync::Mutex::new(leds));
 
     std::thread::Builder::new()
         .stack_size(60_000)

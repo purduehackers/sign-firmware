@@ -53,6 +53,7 @@ jobs:
           echo "PAL3_EMAIL=\"${{ secrets.PAL3_EMAIL }}\"" >> .env
           echo "JACK_PASSWORD=\"${{ secrets.JACK_PASSWORD }}\"" >> .env
           echo "JACK_SSID=\"${{ secrets.JACK_SSID }}\"" >> .env
+          echo "PHACK_API_KEY=\"${{ secrets.PHACK_API_KEY }}\"" >> .env
 
       - name: Run command
         run: cargo ${{ matrix.action.command }} ${{ matrix.action.args }}
@@ -76,6 +77,45 @@ jobs:
         with:
           name: ${{ matrix.action.artifact_name }}-binary
           path: ${{ matrix.action.artifact_name }}.bin
+          if-no-files-found: error
+
+  script-env-checks:
+    name: Script Environment Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Enable caching
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: script-env
+
+      - name: Test script-env on the host
+        run: cargo test -p script-env --target x86_64-unknown-linux-gnu
+        env:
+          # Bypass the repo's `esp` toolchain pin; these crates are pure Rust.
+          RUSTUP_TOOLCHAIN: stable
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build and test the validator
+        working-directory: crates/validator
+        run: |
+          cargo test --target x86_64-unknown-linux-gnu
+          wasm-pack build --target nodejs --scope purduehackers --release
+
+      - name: Upload validator package
+        uses: actions/upload-artifact@v4
+        with:
+          name: sign-script-validator
+          path: crates/validator/pkg/
           if-no-files-found: error
 
   publish:

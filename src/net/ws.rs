@@ -105,7 +105,9 @@ impl WebSocket {
 
     pub async fn recv(&mut self) -> anyhow::Result<WsMessage> {
         loop {
-            let msg = self.read_frame().await?;
+            let mut first = [0u8; 1];
+            read_exact(&mut self.tls, &mut first).await?;
+            let msg = self.read_frame_after(first[0]).await?;
             match &msg {
                 WsMessage::Ping(data) => {
                     let pong = WsMessage::Pong(data.clone());
@@ -117,9 +119,36 @@ impl WebSocket {
         }
     }
 
-    async fn read_frame(&mut self) -> anyhow::Result<WsMessage> {
-        let mut header = [0u8; 2];
-        read_exact(&mut self.tls, &mut header).await?;
+    /// Like `recv`, but returns `None` when no frame starts within
+    /// `timeout`. Only the wait for the first header byte is
+    /// cancellable — a one-byte read either completes or consumes
+    /// nothing — so a timeout can never desync the frame stream.
+    pub async fn recv_timeout(
+        &mut self,
+        timeout: embassy_time::Duration,
+    ) -> anyhow::Result<Option<WsMessage>> {
+        loop {
+            let mut first = [0u8; 1];
+            match embassy_time::with_timeout(timeout, read_exact(&mut self.tls, &mut first)).await {
+                Err(_) => return Ok(None),
+                Ok(Err(e)) => return Err(e),
+                Ok(Ok(())) => {}
+            }
+            let msg = self.read_frame_after(first[0]).await?;
+            match &msg {
+                WsMessage::Ping(data) => {
+                    let pong = WsMessage::Pong(data.clone());
+                    self.send(&pong).await?;
+                    continue;
+                }
+                _ => return Ok(Some(msg)),
+            }
+        }
+    }
+
+    async fn read_frame_after(&mut self, first: u8) -> anyhow::Result<WsMessage> {
+        let mut header = [first, 0];
+        read_exact(&mut self.tls, &mut header[1..]).await?;
 
         let opcode = header[0] & 0x0F;
         let masked = header[1] & 0x80 != 0;

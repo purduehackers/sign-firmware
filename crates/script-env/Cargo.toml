@@ -1,0 +1,26 @@
+[package]
+name = "script-env"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Shared Rhai script environment for the Purdue Hackers Sign: engine construction, sandbox limits, and the script-facing API. Compiled into both the firmware and the WASM validator so the two can never disagree."
+
+[dependencies]
+# f32_float: the ESP32 FPU is single-precision only; f64 would be soft-float.
+# only_i64: one integer type keeps Dynamic small and millis() safe past 24 days.
+# no_closure: closures capture through shared cells, which is heap churn.
+# sync: makes Shared an Arc so prebuilt packages can be handed to every engine
+# by pointer instead of being rebuilt per run.
+# no_optimize: the optimizer's post-parse pass sets the peak memory during
+# `compile`, and on the device that peak is what has to fit.
+rhai = { version = "1.26", default-features = false, features = [
+    "std",
+    "sync",
+    "only_i64",
+    "f32_float",
+    "no_closure",
+    "no_module",
+    "no_custom_syntax",
+    "no_time",
+    "no_optimize",
+] }

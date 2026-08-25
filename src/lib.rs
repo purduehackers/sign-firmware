@@ -1,6 +1,7 @@
 pub mod net;
 #[cfg(feature = "interactive")]
 pub mod printer;
+pub mod script;
 
 use anyhow::anyhow;
 use esp_idf_svc::{hal::ledc::LedcDriver, sys::EspError};

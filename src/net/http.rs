@@ -187,11 +187,12 @@ pub async fn follow_redirect(
 }
 
 /// Like follow_redirect but returns the TLS stream positioned at the start of the body
-/// (headers already consumed). Used for streaming downloads like OTA.
+/// (headers already consumed) plus the Content-Length when the server sent one.
+/// Used for streaming downloads like OTA.
 pub async fn follow_redirect_stream(
     url: &str,
     headers: &[(&str, &str)],
-) -> anyhow::Result<EspAsyncTls<EspTlsSocket>> {
+) -> anyhow::Result<(EspAsyncTls<EspTlsSocket>, Option<usize>)> {
     let mut current_url = url.to_string();
 
     for _ in 0..5 {
@@ -237,8 +238,17 @@ pub async fn follow_redirect_stream(
             continue;
         }
 
+        let content_length = header_str.split("\r\n").find_map(|line| {
+            let (name, value) = line.split_once(": ")?;
+            if name.eq_ignore_ascii_case("content-length") {
+                value.trim().parse::<usize>().ok()
+            } else {
+                None
+            }
+        });
+
         // Body starts here — return the stream
-        return Ok(tls);
+        return Ok((tls, content_length));
     }
 
     anyhow::bail!("Too many redirects")
