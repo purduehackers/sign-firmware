@@ -3,7 +3,6 @@ use log::info;
 use serde::{Deserialize, Serialize};
 
 const NVS_NAMESPACE: &str = "sign_cfg";
-const KEY_DEVICE_KEY: &str = "device_key";
 const KEY_WIFI_NETWORKS: &str = "wifi_nets";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,21 +38,6 @@ impl DeviceConfig {
         let nvs = EspNvs::new(partition, NVS_NAMESPACE, true)?;
         info!("NVS namespace '{NVS_NAMESPACE}' opened");
         Ok(Self { nvs })
-    }
-
-    pub fn get_device_key(&self) -> Option<String> {
-        let mut buf = [0u8; 128];
-        self.nvs
-            .get_str(KEY_DEVICE_KEY, &mut buf)
-            .ok()
-            .flatten()
-            .map(|s| s.trim_end_matches('\0').to_string())
-    }
-
-    pub fn set_device_key(&mut self, key: &str) -> anyhow::Result<()> {
-        self.nvs.set_str(KEY_DEVICE_KEY, key)?;
-        info!("Device key stored in NVS");
-        Ok(())
     }
 
     pub fn get_wifi_networks(&self) -> Vec<WifiNetwork> {

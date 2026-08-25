@@ -1,0 +1,19 @@
+[package]
+name = "sign-script-validator"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "WASM build of the Sign's script environment so api-v4 can reject a broken Rhai script at upload time, with the exact engine the firmware runs."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+script-env = { path = "../script-env" }
+wasm-bindgen = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true

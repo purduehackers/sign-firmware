@@ -1,0 +1,5 @@
+# The validator builds for wasm32 with plain stable — the repo-root `esp`
+# toolchain override must not apply here.
+[toolchain]
+channel = "stable"
+targets = ["wasm32-unknown-unknown"]

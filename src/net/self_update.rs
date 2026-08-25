@@ -7,8 +7,6 @@ use esp_idf_svc::ota::EspOta;
 use log::info;
 use palette::rgb::Rgb;
 
-use crate::Leds;
-
 use super::http;
 
 const IS_INTERACTIVE: bool = cfg!(feature = "interactive");
@@ -25,8 +23,8 @@ struct GithubAsset {
     name: String,
 }
 
-pub async fn self_update(leds: &mut Leds) -> anyhow::Result<()> {
-    leds.set_all_colors(Rgb::new(0, 0, 255));
+pub async fn self_update(leds: &crate::script::SharedLeds) -> anyhow::Result<()> {
+    leds.lock().unwrap().set_all_colors(Rgb::new(0, 0, 255));
 
     info!("Checking for self-update");
 
@@ -50,7 +48,7 @@ pub async fn self_update(leds: &mut Leds) -> anyhow::Result<()> {
 
     if remote > local {
         info!("New release found! Downloading and updating");
-        leds.set_all_colors(Rgb::new(0, 255, 0));
+        leds.lock().unwrap().set_all_colors(Rgb::new(0, 255, 0));
 
         let asset_name = if IS_INTERACTIVE {
             "sign-firmware.bin"
@@ -65,13 +63,14 @@ pub async fn self_update(leds: &mut Leds) -> anyhow::Result<()> {
             .ok_or_else(|| anyhow::anyhow!("Release missing asset {asset_name}"))?
             .browser_download_url;
 
-        let tls = http::follow_redirect_stream(&url, &[]).await?;
+        let (tls, content_length) = http::follow_redirect_stream(&url, &[]).await?;
 
         let mut body = [0u8; 8192];
         let mut ota = EspOta::new()?;
         let mut update = ota.initiate_update()?;
 
         let mut chunk = 0_usize;
+        let mut total = 0_usize;
         loop {
             let read =
                 with_timeout(embassy_time::Duration::from_secs(10), tls.read(&mut body)).await;
@@ -83,11 +82,26 @@ pub async fn self_update(leds: &mut Leds) -> anyhow::Result<()> {
                     if read == 0 {
                         break;
                     }
+                    total += read;
                     chunk += 1;
                 }
-                Ok(Err(e)) => e.panic(),
-                Err(_) => break,
+                Ok(Err(e)) => {
+                    // A truncated image must never be activated.
+                    update.abort()?;
+                    anyhow::bail!("OTA download failed: {e}");
+                }
+                Err(_) => {
+                    update.abort()?;
+                    anyhow::bail!("OTA download stalled after {total} bytes");
+                }
             };
+        }
+
+        if let Some(expected) = content_length {
+            if total != expected {
+                update.abort()?;
+                anyhow::bail!("OTA download incomplete: got {total} of {expected} bytes");
+            }
         }
 
         info!("Update completed! Activating...");
