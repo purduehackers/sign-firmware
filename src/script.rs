@@ -4,7 +4,7 @@
 //! heap admission check, and spawns the interpreter on its own thread.
 //! Outcomes flow back to the WebSocket thread over a channel.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -20,20 +20,26 @@ use crate::{Block, Leds};
 
 pub type SharedLeds = Arc<Mutex<Leds>>;
 
-/// The interpreter stack is one contiguous allocation. Rhai's eval
-/// recursion is bounded by the expression-depth and call-level limits in
-/// script-env, not by script length, so this does not grow with scripts.
-const SCRIPT_STACK_BYTES: usize = 32 * 1024;
-/// Rough heap cost of the curated engine, to be tightened against the
-/// numbers `log_heap` prints on real hardware.
-const ENGINE_HEAP_BYTES: usize = 100 * 1024;
-/// Measured on-device cost of a parsed AST per byte of source.
-const AST_BYTES_PER_SOURCE_BYTE: usize = 24;
+/// The interpreter stack is one contiguous allocation. The grain VM is
+/// an iterative bytecode loop, so it runs far shallower than the old
+/// tree-walking evaluator did.
+const SCRIPT_STACK_BYTES: usize = 20 * 1024;
+/// Rough heap cost of the curated engine, tightened against the numbers
+/// this module logs on real hardware.
+const ENGINE_HEAP_BYTES: usize = 40 * 1024;
+/// Estimated heap per wire byte of a loaded grain artifact, from the
+/// signal firmware's on-device measurements.
+const ARTIFACT_BYTES_PER_WIRE_BYTE: usize = 5;
 const RUN_MARGIN_BYTES: usize = 8 * 1024;
 
 /// Abort latency bound: blocking script calls wake at least this often
 /// to check the abort flag.
 const SLEEP_CHUNK: Duration = Duration::from_millis(10);
+
+/// Hard wall-clock cap on a script run. When it expires the script is
+/// terminated, `script_done` is reported, and the sign returns to
+/// Lightning Time.
+const MAX_RUN: Duration = Duration::from_secs(30);
 
 /// What the interpreter thread reports back to the WebSocket thread.
 pub enum ScriptEvent {
@@ -85,10 +91,10 @@ impl ScriptRunner {
     }
 
     /// Replaces the running script. Replies flow through the event channel.
-    pub fn start(&mut self, request_id: String, script: String) {
+    pub fn start(&mut self, request_id: String, artifact: Vec<u8>) {
         self.stop();
 
-        if let Err(message) = heap_check(script.len()) {
+        if let Err(message) = heap_check(artifact.len()) {
             let _ = self.events.send(ScriptEvent::Rejected {
                 request_id,
                 message,
@@ -108,7 +114,7 @@ impl ScriptRunner {
         let spawned = std::thread::Builder::new()
             .name("rhai".into())
             .stack_size(SCRIPT_STACK_BYTES)
-            .spawn(move || run_script(thread_request_id, script, abort, leds, active, events));
+            .spawn(move || run_script(thread_request_id, artifact, abort, leds, active, events));
 
         match spawned {
             Ok(handle) => self.handle = Some(handle),
@@ -128,14 +134,24 @@ impl ScriptRunner {
 /// interpreter that would run out of memory must be refused up front.
 /// Free-heap totals lie about contiguous space, so the stack (one
 /// contiguous allocation) is checked against the largest free block.
-fn heap_check(script_bytes: usize) -> Result<(), String> {
+pub fn free_heap() -> (usize, usize) {
     let free = unsafe { esp_idf_svc::sys::esp_get_free_heap_size() } as usize;
     let largest = unsafe {
         esp_idf_svc::sys::heap_caps_get_largest_free_block(esp_idf_svc::sys::MALLOC_CAP_8BIT)
     } as usize;
+    (free, largest)
+}
+
+fn log_heap(stage: &str) {
+    let (free, largest) = free_heap();
+    info!("Heap [{stage}]: {free} free, largest block {largest}");
+}
+
+fn heap_check(artifact_bytes: usize) -> Result<(), String> {
+    let (free, largest) = free_heap();
     let needed = SCRIPT_STACK_BYTES
         + ENGINE_HEAP_BYTES
-        + script_bytes * AST_BYTES_PER_SOURCE_BYTE
+        + artifact_bytes * ARTIFACT_BYTES_PER_WIRE_BYTE
         + RUN_MARGIN_BYTES;
     info!("Heap before script: {free} free, largest block {largest}, need ~{needed}");
 
@@ -178,13 +194,16 @@ fn lightning_snapshot() -> LightningSnapshot {
 
 fn run_script(
     request_id: String,
-    script: String,
+    artifact: Vec<u8>,
     abort: Arc<AtomicBool>,
     leds: SharedLeds,
     active: Arc<AtomicBool>,
     events: mpsc::Sender<ScriptEvent>,
 ) {
     let start = Instant::now();
+    let deadline = start + MAX_RUN;
+    // f32 bits in an AtomicU32: the ESP32 has no wider atomics.
+    let brightness = Arc::new(AtomicU32::new(1.0_f32.to_bits()));
 
     let mut engine = script_env::new_engine();
     script_env::register_api(
@@ -192,16 +211,21 @@ fn run_script(
         Handlers {
             set_block: Box::new({
                 let leds = leds.clone();
+                let brightness = brightness.clone();
                 move |block, r, g, b| {
-                    leds.lock()
-                        .unwrap()
-                        .set_color(palette::rgb::Rgb::new(r, g, b), block_for_index(block));
+                    let scale = f32::from_bits(brightness.load(Ordering::Relaxed));
+                    let dim = |c: u8| (c as f32 * scale).round().clamp(0.0, 255.0) as u8;
+                    leds.lock().unwrap().set_color(
+                        palette::rgb::Rgb::new(dim(r), dim(g), dim(b)),
+                        block_for_index(block),
+                    );
                 }
             }),
             sleep: Box::new({
                 let abort = abort.clone();
                 move |ms| {
                     let until = Instant::now() + Duration::from_millis(ms.max(0) as u64);
+                    let until = until.min(deadline);
                     loop {
                         if abort.load(Ordering::SeqCst) {
                             return;
@@ -217,6 +241,10 @@ fn run_script(
             millis: Box::new(move || start.elapsed().as_millis() as i64),
             // Hardware RNG: a register read, cheap enough per value.
             random_u32: Box::new(|| unsafe { esp_idf_svc::sys::esp_random() }),
+            set_brightness: Box::new({
+                let brightness = brightness.clone();
+                move |v| brightness.store(v.to_bits(), Ordering::Relaxed)
+            }),
             lightning_time: Box::new(lightning_snapshot),
         },
     );
@@ -227,6 +255,9 @@ fn run_script(
             if abort.load(Ordering::SeqCst) {
                 return Some(Dynamic::from("aborted"));
             }
+            if Instant::now() >= deadline {
+                return Some(Dynamic::from("deadline"));
+            }
             // Busy scripts never yield on their own; give the IDLE task
             // (and its watchdog) a breath now and then.
             if ops % 8192 == 0 {
@@ -236,24 +267,11 @@ fn run_script(
         }
     });
 
-    let ast = match script_env::compile(&engine, &script) {
-        Ok(ast) => ast,
-        Err(e) => {
-            let _ = events.send(ScriptEvent::Rejected {
-                request_id,
-                message: e.0.to_string(),
-                line: e.1.line(),
-                position: e.1.position(),
-            });
-            return;
-        }
-    };
-    // `run` would otherwise hold both the text and the AST live.
-    drop(script);
+    log_heap("engine built");
 
     let _ = events.send(ScriptEvent::Started { request_id });
     active.store(true, Ordering::SeqCst);
-    let outcome = script_env::run(&engine, &ast);
+    let outcome = script_env::run_artifact(&engine, &artifact);
     active.store(false, Ordering::SeqCst);
 
     match outcome {
@@ -263,8 +281,13 @@ fn run_script(
             }
         }
         Err(e) => match *e {
-            // Termination through on_progress is the runner stopping us.
-            EvalAltResult::ErrorTerminated(..) => {}
+            EvalAltResult::ErrorTerminated(token, _) => {
+                // A deadline is a normal end of life; an abort is the
+                // runner replacing us and needs no report.
+                if token.to_string() == "deadline" {
+                    let _ = events.send(ScriptEvent::Done);
+                }
+            }
             other => {
                 let _ = events.send(ScriptEvent::Failed {
                     message: other.to_string(),

@@ -45,7 +45,9 @@ impl WebSocket {
             .replace("wss://", "https://");
         let tls = generate_tls(&tls_url).await?;
 
-        // Send WebSocket upgrade request
+        // Send WebSocket upgrade request. The User-Agent carries the
+        // firmware version so the server can tell firmwares apart.
+        const USER_AGENT: &str = concat!("PHSign/", env!("CARGO_PKG_VERSION"));
         let req = format!(
             "GET {path} HTTP/1.1\r\n\
              Host: {host}\r\n\
@@ -53,7 +55,7 @@ impl WebSocket {
              Connection: Upgrade\r\n\
              Sec-WebSocket-Key: {ws_key}\r\n\
              Sec-WebSocket-Version: 13\r\n\
-             User-Agent: PHSign/1.0.0\r\n\
+             User-Agent: {USER_AGENT}\r\n\
              \r\n"
         );
 

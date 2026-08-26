@@ -11,9 +11,10 @@ description = "Shared Rhai script environment for the Purdue Hackers Sign: engin
 # no_closure: closures capture through shared cells, which is heap churn.
 # sync: makes Shared an Arc so prebuilt packages can be handed to every engine
 # by pointer instead of being rebuilt per run.
-# no_optimize: the optimizer's post-parse pass sets the peak memory during
-# `compile`, and on the device that peak is what has to fit.
-rhai = { version = "1.26", default-features = false, features = [
+# grain: the experimental bytecode VM, unreleased — pinned to the same
+# revision the signal firmware ships on ESP32 hardware. The server lowers
+# scripts to verified bytecode artifacts and the device never parses.
+rhai = { git = "https://github.com/rhaiscript/rhai", rev = "72ad275f0db410120945d31fa686647135f1f99f", features = [
     "std",
     "sync",
     "only_i64",
@@ -22,5 +23,5 @@ rhai = { version = "1.26", default-features = false, features = [
     "no_module",
     "no_custom_syntax",
     "no_time",
-    "no_optimize",
-] }
+    "grain",
+], default-features = false }

@@ -23,6 +23,7 @@ pub enum NetworkType {
     #[default]
     Personal,
     Enterprise,
+    Wep,
 }
 
 fn default_network_type() -> NetworkType {

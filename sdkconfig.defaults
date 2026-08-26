@@ -21,3 +21,10 @@ CONFIG_BT_NIMBLE_ENABLED=y
 CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y
 CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=n
 CONFIG_BTDM_CTRL_MODE_BTDM=n
+
+# The persistent WebSocket connection pays for TLS buffers for its whole
+# life. Server frames are tiny, so shrink the outgoing buffer; incoming
+# stays 16K because GitHub sends full-size TLS records during self-update.
+CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096

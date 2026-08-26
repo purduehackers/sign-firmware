@@ -31,8 +31,9 @@ fn build_request_head(method: &str, url: &Url, headers: &[(&str, &str)]) -> Stri
     };
     let host = url.host_str().unwrap_or("");
 
+    const USER_AGENT: &str = concat!("PHSign/", env!("CARGO_PKG_VERSION"));
     let mut req =
-        format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: PHSign/1.0.0\r\n");
+        format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: {USER_AGENT}\r\n");
     for (k, v) in headers {
         req.push_str(&format!("{k}: {v}\r\n"));
     }

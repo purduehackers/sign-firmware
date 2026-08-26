@@ -29,18 +29,22 @@ use sign_firmware::{
 
 extern crate alloc;
 
+/// Connects to WiFi, falling back to BLE provisioning. Returns whether
+/// the BLE stack was ever brought up.
 async fn wifi_connect(
     wifi: &mut AsyncWifi<EspWifi<'static>>,
     device_config: &mut DeviceConfig,
     leds: &SharedLeds,
-) {
+) -> bool {
     leds.lock().unwrap().set_all_colors(Rgb::new(255, 0, 0)); // Red while connecting
+    let mut ble_used = false;
     loop {
         match connect_to_network(wifi, device_config).await {
             Ok(()) => break,
             Err(e) => {
                 log::warn!("WiFi failed: {e}, starting BLE provisioning...");
                 leds.lock().unwrap().set_all_colors(Rgb::new(128, 0, 128)); // purple
+                ble_used = true;
                 match ble::ble_provision() {
                     Ok(network) => {
                         device_config.add_wifi_network(&network).ok();
@@ -51,6 +55,7 @@ async fn wifi_connect(
             }
         }
     }
+    ble_used
 }
 
 async fn wifi_reconnect(
@@ -90,7 +95,16 @@ async fn amain(
     #[allow(unused_mut)]
     mut button_led: PinDriver<'static, Gpio15, Output>,
 ) {
-    wifi_connect(&mut wifi, &mut device_config, &leds).await;
+    let ble_used = wifi_connect(&mut wifi, &mut device_config, &leds).await;
+
+    if !ble_used {
+        // The BT controller reserves tens of KB of RAM statically even
+        // though BLE only serves WiFi provisioning. The Rhai engine needs
+        // that memory more.
+        let released =
+            unsafe { sys::esp_bt_controller_mem_release(sys::esp_bt_mode_t_ESP_BT_MODE_BTDM) };
+        info!("BT controller memory release: {released}");
+    }
 
     let config = std::sync::Arc::new(std::sync::Mutex::new(device_config));
 
@@ -102,7 +116,7 @@ async fn amain(
     let ws_leds = leds.clone();
     let ws_script_active = script_active.clone();
     std::thread::Builder::new()
-        .stack_size(24_000)
+        .stack_size(16_000)
         .spawn(move || block_on(ws_listen(ws_config, ws_leds, ws_script_active)))
         .expect("ws listener thread");
 
@@ -389,7 +403,7 @@ fn main() {
     let leds: SharedLeds = std::sync::Arc::new(std::sync::Mutex::new(leds));
 
     std::thread::Builder::new()
-        .stack_size(60_000)
+        .stack_size(20_000)
         .spawn(|| {
             // This has caused problems in the past. If async-io or network stack-related stuff
             // is causing problems then try increasing `max_fds`.

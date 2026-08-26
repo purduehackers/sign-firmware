@@ -11,17 +11,18 @@ pub use rhai;
 use std::sync::{Arc, OnceLock};
 
 use rhai::packages::{
-    ArithmeticPackage, BasicArrayPackage, BasicIteratorPackage, BasicMapPackage, BasicMathPackage,
-    LanguageCorePackage, LogicPackage, Package,
+    ArithmeticPackage, BasicIteratorPackage, BasicMathPackage, LogicPackage, Package,
 };
 use rhai::{
     Array, Dynamic, Engine, EvalAltResult, Module, ParseError, Scope, Shared, AST, FLOAT, INT,
 };
 
-/// Raw script size cap, enforced by the validator before compiling and by
-/// the firmware before accepting a `set_script` frame. Sized against the
-/// measured ~24 bytes of on-device AST heap per byte of source.
+/// Raw script size cap, enforced by the validator before compiling.
 pub const MAX_SCRIPT_BYTES: usize = 8 * 1024;
+
+/// Lowered artifact size cap, enforced by the validator after lowering
+/// and by the firmware before accepting a `set_script` frame.
+pub const MAX_ARTIFACT_BYTES: usize = 16 * 1024;
 
 /// How many LED blocks the sign has.
 pub const NUM_BLOCKS: usize = 5;
@@ -57,6 +58,8 @@ pub struct Handlers {
     pub millis: Box<dyn Fn() -> INT + Send + Sync>,
     /// A fresh uniformly-distributed u32 per call.
     pub random_u32: Box<dyn Fn() -> u32 + Send + Sync>,
+    /// set_brightness(v) — global output scale, already clamped to 0..=1.
+    pub set_brightness: Box<dyn Fn(FLOAT) + Send + Sync>,
     /// The current Lightning Time reading.
     pub lightning_time: Box<dyn Fn() -> LightningSnapshot + Send + Sync>,
 }
@@ -87,6 +90,7 @@ impl Handlers {
                 rng_state.store(x, std::sync::atomic::Ordering::SeqCst);
                 x
             }),
+            set_brightness: Box::new(|_| {}),
             lightning_time: Box::new(|| LightningSnapshot {
                 bolts: 8,
                 zaps: 0,
@@ -129,14 +133,48 @@ pub fn new_engine() -> Engine {
     <LogicPackage as Package>::init_engine(&mut engine);
     engine.register_global_module(logic_module());
 
-    LanguageCorePackage::new().register_into_engine(&mut engine);
     BasicIteratorPackage::new().register_into_engine(&mut engine);
     BasicMathPackage::new().register_into_engine(&mut engine);
-    BasicArrayPackage::new().register_into_engine(&mut engine);
-    BasicMapPackage::new().register_into_engine(&mut engine);
+    // No BasicMapPackage: reading fields off the map `lightning_time()`
+    // returns is core-language; only construction and methods need the
+    // package, and its heap cost matters on the device.
 
     apply_limits(&mut engine);
     engine
+}
+
+/// A lowered script: the grain bytecode the device runs, plus the
+/// position table the server keeps for mapping runtime errors back.
+pub struct Artifact {
+    pub program: Vec<u8>,
+    pub positions: Vec<u8>,
+    pub residual: usize,
+}
+
+/// Lowers a compiled script to a verified bytecode artifact. Runs
+/// server-side (in the validator), never on the device.
+pub fn lower(ast: &AST) -> Result<Artifact, String> {
+    let mut program = rhai::grain::Compiler::new().compile(ast);
+    let residual = program.residual_count();
+    let positions = program.strip_positions();
+    let program = program
+        .write()
+        .map_err(|e| format!("cannot serialise the artifact: {e}"))?;
+    Ok(Artifact {
+        program,
+        positions,
+        residual,
+    })
+}
+
+/// Loads, verifies, and runs a lowered artifact against [`base_scope`].
+pub fn run_artifact(engine: &Engine, bytes: &[u8]) -> Result<(), Box<EvalAltResult>> {
+    let program = rhai::grain::Program::read(bytes)
+        .map_err(|e| -> Box<EvalAltResult> { format!("artifact will not load: {e}").into() })?;
+    program.verify().map_err(|e| -> Box<EvalAltResult> {
+        format!("artifact failed verification: {e:?}").into()
+    })?;
+    rhai::grain::Vm::new(engine).run(&program)
 }
 
 /// The sandbox. Parse-time limits (expression depth) also make
@@ -232,6 +270,7 @@ pub fn register_api(engine: &mut Engine, handlers: Handlers) {
         sleep,
         millis,
         random_u32,
+        set_brightness,
         lightning_time,
     } = handlers;
 
@@ -334,6 +373,10 @@ pub fn register_api(engine: &mut Engine, handlers: Handlers) {
     engine.register_fn("rand_chance", {
         let random_u32 = random_u32.clone();
         move |p: FLOAT| -> bool { (random_u32() >> 8) as FLOAT / 16_777_216.0 < p }
+    });
+
+    engine.register_fn("set_brightness", move |v: FLOAT| {
+        set_brightness(v.clamp(0.0, 1.0));
     });
 
     engine.register_fn("hsv", |h: FLOAT, s: FLOAT, v: FLOAT| -> Array {

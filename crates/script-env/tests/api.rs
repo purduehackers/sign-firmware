@@ -22,6 +22,7 @@ fn recording_handlers() -> (Handlers, Arc<Mutex<Vec<(INT, u8, u8, u8)>>>) {
         },
         millis: Box::new(move || clock.load(std::sync::atomic::Ordering::SeqCst)),
         random_u32: stubs.random_u32,
+        set_brightness: stubs.set_brightness,
         lightning_time: stubs.lightning_time,
     };
     (handlers, writes)
@@ -160,4 +161,46 @@ fn loops_and_conditionals_work() {
     )
     .unwrap();
     assert_eq!(writes.len(), 15);
+}
+
+/// The grain path: lower on the "server", run the artifact like the
+/// device does — including scope constants and map field reads.
+#[test]
+fn grain_round_trip() {
+    let mut engine = new_engine();
+    let (handlers, writes) = recording_handlers();
+    register_api(&mut engine, handlers);
+
+    let script = "set_block(TOP, hsv(0.0, 1.0, 1.0));\n\
+                  let lt = lightning_time();\n\
+                  if lt.bolts == 8 { set_block(CENTER, lt.colors.bolt); }";
+    let ast = compile(&engine, script).expect("compiles");
+    let artifact = script_env::lower(&ast).expect("lowers");
+    assert!(!artifact.program.is_empty());
+
+    script_env::run_artifact(&engine, &artifact.program).expect("artifact runs");
+    let writes = writes.lock().unwrap().clone();
+    assert_eq!(writes, vec![(4, 255, 0, 0), (0, 251, 219, 0)]);
+}
+
+#[test]
+fn set_brightness_is_callable_and_clamped() {
+    let mut engine = new_engine();
+    let level = Arc::new(Mutex::new(1.0_f32));
+    let stubs = Handlers::stubs();
+    let handlers = Handlers {
+        set_block: stubs.set_block,
+        sleep: stubs.sleep,
+        millis: stubs.millis,
+        random_u32: stubs.random_u32,
+        set_brightness: {
+            let level = level.clone();
+            Box::new(move |v| *level.lock().unwrap() = v)
+        },
+        lightning_time: stubs.lightning_time,
+    };
+    register_api(&mut engine, handlers);
+    let ast = compile(&engine, "set_brightness(2.5); set_brightness(0.3);").unwrap();
+    run(&engine, &ast).unwrap();
+    assert!((*level.lock().unwrap() - 0.3).abs() < 1e-6);
 }

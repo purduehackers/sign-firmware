@@ -6,7 +6,7 @@ exclude = ["crates/validator"]
 
 [package]
 name = "sign-firmware"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Jack Hogan <jackhogan11@gmail.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -76,6 +76,7 @@ esp-idf-svc = { version = "0.51", default-features = false, features = [
 ] }
 anyhow = { version = "1.0.88", default-features = false }
 script-env = { path = "crates/script-env" }
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 embedded-svc = { version = "0.28.0", features = ["nightly"] }
 http = "1.1.0"
 url = "2.5.2"

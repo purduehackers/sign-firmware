@@ -49,6 +49,10 @@ enum NetworkSetupInfo {
         ssid: String,
         password: String,
     },
+    Wep {
+        ssid: String,
+        password: String,
+    },
 }
 
 impl NetworkSetupInfo {
@@ -58,6 +62,7 @@ impl NetworkSetupInfo {
             match self {
                 Self::Enterprise { ssid, .. } => ssid.as_str(),
                 Self::Personal { ssid, .. } => ssid.as_str(),
+                Self::Wep { ssid, .. } => ssid.as_str(),
             }
         )
     }
@@ -73,6 +78,10 @@ impl From<WifiNetwork> for NetworkSetupInfo {
                 password: net.password,
             },
             config::NetworkType::Personal => NetworkSetupInfo::Personal {
+                ssid: net.ssid,
+                password: net.password,
+            },
+            config::NetworkType::Wep => NetworkSetupInfo::Wep {
                 ssid: net.ssid,
                 password: net.password,
             },
@@ -144,6 +153,24 @@ async fn try_connect_to_network(
                 ))?;
             }
         }
+        NetworkSetupInfo::Wep { ssid, password } => {
+            let config = Configuration::Client(ClientConfiguration {
+                ssid: ssid.as_str().try_into().unwrap(),
+                password: password.as_str().try_into().unwrap(),
+                auth_method: esp_idf_svc::wifi::AuthMethod::WEP,
+                ..Default::default()
+            });
+
+            wifi.set_configuration(&config).map_err(convert_error)?;
+
+            unsafe {
+                use esp_idf_svc::sys::*;
+                anyesp!(esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA))?;
+                anyesp!(esp_wifi_set_ps(
+                    esp_idf_svc::sys::wifi_ps_type_t_WIFI_PS_NONE
+                ))?;
+            }
+        }
     }
 
     wifi.wifi_mut().connect().map_err(convert_error)?;
@@ -192,6 +219,10 @@ pub async fn connect_to_network_with(
         NetworkSetupInfo::Personal {
             ssid: dotenv!("JACK_SSID").to_string(),
             password: dotenv!("JACK_PASSWORD").to_string(),
+        },
+        NetworkSetupInfo::Wep {
+            ssid: dotenv!("WEP_SSID").to_string(),
+            password: dotenv!("WEP_PASSWORD").to_string(),
         },
     ];
 
@@ -260,9 +291,12 @@ pub async fn ws_listen(
                     "key": dotenv!("PHACK_API_KEY"),
                 })
                 .to_string();
+                let (heap_free, heap_largest) = crate::script::free_heap();
                 let status = serde_json::json!({
                     "type": "status",
                     "version": env!("CARGO_PKG_VERSION"),
+                    "heap_free": heap_free,
+                    "heap_largest": heap_largest,
                 })
                 .to_string();
 
@@ -417,25 +451,38 @@ async fn handle_ws_command(
             ws_conn.send(&ws::WsMessage::Text(resp.to_string())).await?;
         }
         "set_script" => {
-            let script = msg["script"]
+            use base64::Engine as _;
+            let encoded = msg["artifact"]
                 .as_str()
-                .ok_or_else(|| anyhow::anyhow!("set_script without a script"))?;
-            if script.len() > script_env::MAX_SCRIPT_BYTES {
-                let resp = serde_json::json!({
-                    "type": "script_error",
-                    "request_id": request_id,
-                    "message": format!(
-                        "script is {} bytes; the sign accepts at most {}",
-                        script.len(),
-                        script_env::MAX_SCRIPT_BYTES
-                    ),
-                });
-                ws_conn.send(&ws::WsMessage::Text(resp.to_string())).await?;
-            } else {
-                // The ack or error comes back through the event channel
-                // once the script thread has compiled it.
-                runner.start(request_id.to_string(), script.to_string());
-            }
+                .ok_or_else(|| anyhow::anyhow!("set_script without an artifact"))?;
+            let artifact = match base64::engine::general_purpose::STANDARD.decode(encoded) {
+                Ok(bytes) if bytes.len() <= script_env::MAX_ARTIFACT_BYTES => bytes,
+                Ok(bytes) => {
+                    let resp = serde_json::json!({
+                        "type": "script_error",
+                        "request_id": request_id,
+                        "message": format!(
+                            "artifact is {} bytes; the sign accepts at most {}",
+                            bytes.len(),
+                            script_env::MAX_ARTIFACT_BYTES
+                        ),
+                    });
+                    ws_conn.send(&ws::WsMessage::Text(resp.to_string())).await?;
+                    return Ok(true);
+                }
+                Err(e) => {
+                    let resp = serde_json::json!({
+                        "type": "script_error",
+                        "request_id": request_id,
+                        "message": format!("artifact is not valid base64: {e}"),
+                    });
+                    ws_conn.send(&ws::WsMessage::Text(resp.to_string())).await?;
+                    return Ok(true);
+                }
+            };
+            // The ack or error comes back through the event channel once
+            // the script thread has loaded and verified the artifact.
+            runner.start(request_id.to_string(), artifact);
         }
         "clear_script" => {
             runner.stop();
